@@ -1,16 +1,19 @@
 ---
-description: 每完成一个需求后提交一条 git commit，便于追溯
+description: 每完成一个需求后提交并推送到 GitHub，便于追溯
 alwaysApply: true
 ---
 
-# 需求完成即提交
+# 需求完成即提交并推送 GitHub
 
-- **约定**：每完成一个需求（或一个可独立交付的改动单元），必须执行一次 git 提交。
-- **操作**：在实现完成、确认无报错后，执行 `git add` 与 `git commit`，不要跳过提交。
+- **约定**：每完成一个需求（或一个可独立交付的改动单元），必须执行一次 git 提交，并推送到 GitHub。
+- **操作**：在实现完成、确认无报错后，依次执行：
+  1. `git add` 与 `git commit`（不要跳过提交）；
+  2. `git push origin main`（将本次提交推送到远程，保证 GitHub 与本地一致）。
+- **远程仓库**：<https://github.com/Mrrabbitan/AIData>
 - **Commit 信息**：
   - 使用简明中文描述该需求或改动，例如：`feat: 语义知识库-知识集合支持从 Excel 同步`
   - 可加简短副标题或列表说明涉及模块（可选）。
-- **目的**：保证每次改动可追溯，便于回滚与 Code Review。
+- **目的**：保证每次改动在本地与 GitHub 均可追溯，便于协作、回滚与 Code Review。
 
 示例：
 ```
