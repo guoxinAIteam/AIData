@@ -408,41 +408,56 @@ const toSession = (user: AuthUser): AuthSession => ({
   permissionCodes: [...new Set([...defaultPermissionCodes, ...(Array.isArray(user.permissionCodes) ? user.permissionCodes : [])])],
 });
 
-const normalizeDomainData = (raw: Partial<DomainData>): DomainData => ({
-  ...seededDomainData,
-  ...raw,
-  knowledgeSystems: raw.knowledgeSystems ?? seededDomainData.knowledgeSystems,
-  knowledgeDetails: raw.knowledgeDetails ?? seededDomainData.knowledgeDetails,
-  glossaryTerms: raw.glossaryTerms ?? seededDomainData.glossaryTerms,
-  pendingGlossaryTerms: raw.pendingGlossaryTerms ?? seededDomainData.pendingGlossaryTerms,
-  exampleQuestions: raw.exampleQuestions ?? seededDomainData.exampleQuestions,
-  traceStats: raw.traceStats ?? seededDomainData.traceStats,
-  traceTrend: raw.traceTrend ?? seededDomainData.traceTrend,
-  traceRecords: raw.traceRecords ?? seededDomainData.traceRecords,
-  skillItems: dedupeSkillItems(
-    (raw.skillItems ?? seededDomainData.skillItems).map((item) => normalizeSkillItem(item)),
-  ),
-  lastSkillSyncAt: raw.lastSkillSyncAt ?? seededDomainData.lastSkillSyncAt,
-  businessMetrics: raw.businessMetrics ?? seededDomainData.businessMetrics,
-  metricKnowledgeLinks: raw.metricKnowledgeLinks ?? seededDomainData.metricKnowledgeLinks,
-  dimensionKnowledgeLinks: raw.dimensionKnowledgeLinks ?? seededDomainData.dimensionKnowledgeLinks,
-  pendingMetricSync: raw.pendingMetricSync ?? seededDomainData.pendingMetricSync,
-  pendingDimensionSync: raw.pendingDimensionSync ?? seededDomainData.pendingDimensionSync,
-  importedTables: raw.importedTables ?? seededDomainData.importedTables,
-  termKnowledgeLinks: raw.termKnowledgeLinks ?? seededDomainData.termKnowledgeLinks,
-  qaSkillBindRecords: raw.qaSkillBindRecords ?? seededDomainData.qaSkillBindRecords ?? [],
-  ontologyLibraries: raw.ontologyLibraries ?? seededDomainData.ontologyLibraries ?? [],
-  ontologyConcepts: raw.ontologyConcepts ?? seededDomainData.ontologyConcepts ?? [],
-  ontologyProperties: raw.ontologyProperties ?? seededDomainData.ontologyProperties ?? [],
-  ontologyRelationTypes: raw.ontologyRelationTypes ?? seededDomainData.ontologyRelationTypes ?? [],
-  ontologyRelations: raw.ontologyRelations ?? seededDomainData.ontologyRelations ?? [],
-  ontologyMappings: raw.ontologyMappings ?? seededDomainData.ontologyMappings ?? [],
-  operationLogs: raw.operationLogs ?? seededDomainData.operationLogs ?? [],
-  modelUsageRecords: raw.modelUsageRecords ?? seededDomainData.modelUsageRecords ?? [],
-  metricQAHistory: raw.metricQAHistory ?? seededDomainData.metricQAHistory ?? [],
-  skillKnowledgeEntries: raw.skillKnowledgeEntries ?? seededDomainData.skillKnowledgeEntries ?? [],
-  questionLabelingJobs: raw.questionLabelingJobs ?? seededDomainData.questionLabelingJobs ?? [],
-});
+/**
+ * Merge seed items into existing array by ID, preserving user-created items
+ * while ensuring new seed entries are always present.
+ */
+const mergeSeedById = <T extends { id: string }>(existing: T[] | undefined, seed: T[]): T[] => {
+  const base = existing ?? seed;
+  const existingIds = new Set(base.map((item) => item.id));
+  const missing = seed.filter((item) => !existingIds.has(item.id));
+  return missing.length > 0 ? [...base, ...missing] : base;
+};
+
+const normalizeDomainData = (raw: Partial<DomainData>): DomainData => {
+  const mergedKnowledgeDetails = { ...(seededDomainData.knowledgeDetails ?? {}), ...(raw.knowledgeDetails ?? {}) };
+
+  return {
+    ...seededDomainData,
+    ...raw,
+    knowledgeSystems: mergeSeedById(raw.knowledgeSystems, seededDomainData.knowledgeSystems),
+    knowledgeDetails: mergedKnowledgeDetails,
+    glossaryTerms: raw.glossaryTerms ?? seededDomainData.glossaryTerms,
+    pendingGlossaryTerms: raw.pendingGlossaryTerms ?? seededDomainData.pendingGlossaryTerms,
+    exampleQuestions: raw.exampleQuestions ?? seededDomainData.exampleQuestions,
+    traceStats: raw.traceStats ?? seededDomainData.traceStats,
+    traceTrend: raw.traceTrend ?? seededDomainData.traceTrend,
+    traceRecords: raw.traceRecords ?? seededDomainData.traceRecords,
+    skillItems: dedupeSkillItems(
+      mergeSeedById(raw.skillItems, seededDomainData.skillItems).map((item) => normalizeSkillItem(item)),
+    ),
+    lastSkillSyncAt: raw.lastSkillSyncAt ?? seededDomainData.lastSkillSyncAt,
+    businessMetrics: raw.businessMetrics ?? seededDomainData.businessMetrics,
+    metricKnowledgeLinks: raw.metricKnowledgeLinks ?? seededDomainData.metricKnowledgeLinks,
+    dimensionKnowledgeLinks: raw.dimensionKnowledgeLinks ?? seededDomainData.dimensionKnowledgeLinks,
+    pendingMetricSync: raw.pendingMetricSync ?? seededDomainData.pendingMetricSync,
+    pendingDimensionSync: raw.pendingDimensionSync ?? seededDomainData.pendingDimensionSync,
+    importedTables: raw.importedTables ?? seededDomainData.importedTables,
+    termKnowledgeLinks: raw.termKnowledgeLinks ?? seededDomainData.termKnowledgeLinks,
+    qaSkillBindRecords: raw.qaSkillBindRecords ?? seededDomainData.qaSkillBindRecords ?? [],
+    ontologyLibraries: raw.ontologyLibraries ?? seededDomainData.ontologyLibraries ?? [],
+    ontologyConcepts: raw.ontologyConcepts ?? seededDomainData.ontologyConcepts ?? [],
+    ontologyProperties: raw.ontologyProperties ?? seededDomainData.ontologyProperties ?? [],
+    ontologyRelationTypes: raw.ontologyRelationTypes ?? seededDomainData.ontologyRelationTypes ?? [],
+    ontologyRelations: raw.ontologyRelations ?? seededDomainData.ontologyRelations ?? [],
+    ontologyMappings: raw.ontologyMappings ?? seededDomainData.ontologyMappings ?? [],
+    operationLogs: raw.operationLogs ?? seededDomainData.operationLogs ?? [],
+    modelUsageRecords: raw.modelUsageRecords ?? seededDomainData.modelUsageRecords ?? [],
+    metricQAHistory: raw.metricQAHistory ?? seededDomainData.metricQAHistory ?? [],
+    skillKnowledgeEntries: mergeSeedById(raw.skillKnowledgeEntries, seededDomainData.skillKnowledgeEntries ?? []),
+    questionLabelingJobs: raw.questionLabelingJobs ?? seededDomainData.questionLabelingJobs ?? [],
+  };
+};
 
 const loadUsers = (): AuthUser[] => {
   if (!canUseStorage()) {
