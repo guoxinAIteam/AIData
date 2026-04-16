@@ -116,7 +116,13 @@ def _extract_trigger_terms(text: str) -> list[str]:
         m = re.search(pat, text)
         if m:
             terms.extend(_split_terms(m.group(1)))
-    return _uniq(terms)
+    cleaned: list[str] = []
+    for t in terms:
+        t = re.sub(r'^(触发[:：]?\s*|当\s*|用户提到\s*)', '', t)
+        t = t.strip('。."""\'"')
+        if t:
+            cleaned.append(t)
+    return _uniq(cleaned)
 
 
 def _extract_exclude_terms(text: str) -> list[str]:
@@ -130,7 +136,12 @@ def _extract_exclude_terms(text: str) -> list[str]:
 
 def _extract_forced_filters(text: str) -> list[str]:
     filters: list[str] = []
-    for kw in ("去除副卡", "排除副卡", "IS_STAT = '1'", "IS_IOT = '0'"):
+    for kw in (
+        "去除副卡", "排除副卡",
+        "IS_STAT = '1'", "IS_STAT='1'",
+        "IS_IOT = '0'", "IS_IOT='0'",
+        "SUBSTR(SERVICE_TYPE,1,2) IN ('40','50')",
+    ):
         if kw in text:
             filters.append(kw)
     return _uniq(filters)
@@ -171,7 +182,7 @@ def _build_rule_sql_draft(intent: dict[str, Any], forced_filters: list[str], pre
 
 
 def _split_terms(s: str) -> list[str]:
-    return [x.strip() for x in re.split(r"[，,、;；\s]+", s) if x.strip()]
+    return [x.strip() for x in re.split(r"[，,、;；/\s]+", s) if x.strip()]
 
 
 def _uniq(items: list[str]) -> list[str]:

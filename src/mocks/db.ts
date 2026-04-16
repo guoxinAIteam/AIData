@@ -103,6 +103,50 @@ const seededSkillItems: SkillItem[] = [
     abortCondition: "素材中不存在相关信息或冲突无法裁决时中止，并明确输出原因与依据。",
     recoveryMethod: "补充/修正素材（数据字典/指标口径/需求文件），重新执行抽取与生成。",
   },
+  {
+    id: "skill-005",
+    name: "移网用户统计取数",
+    summary:
+      "面向移网用户规模统计与分档月报的场景化取数 Skill：基于移网用户定义（SERVICE_TYPE 40/50、IS_IOT=0、IS_STAT=1）、码表（省分/物联网/隐私号）、样例 SQL 与指标口径，输出在网/新发展/出账/三无/活跃等维度的 HiveSQL 及字段对照表。",
+    category: "数据分析",
+    tags: [
+      "移网用户",
+      "用户统计",
+      "分档月报",
+      "在网用户",
+      "新发展",
+      "三无用户",
+      "活跃用户",
+      "出账用户",
+      "HiveSQL",
+      "融合用户",
+      "物联网",
+      "隐私号",
+    ],
+    applicableScenes: ["智能指标问数", "移网用户规模分析", "分档月报", "经营分析会取数"],
+    content:
+      "该 Skill 固化了移网用户统计的完整取数流程：先通过 SERVICE_TYPE 前两位 IN (40,50) 界定移网用户，再按 IS_IOT/IS_STAT 等标志过滤非统计/物联网用户，使用 DWA_V_M_CUS_CB_USER_INFO 为主表，关联省分维表、物联网产品维表、隐私号维表等码表完成分档，最终按需求输出在网用户数/新发展用户数/出账用户数/三无用户数/活跃用户数等指标的 HiveSQL。",
+    source: "user",
+    author: "赵金慧",
+    updatedAt: now,
+    status: "enabled",
+    isCustom: true,
+    createdByUserId: "u-001",
+    version: "1.0",
+    importSource: "manual",
+    triggerCondition:
+      "用户提到"移网/移网用户/在网用户/新发展用户/三无用户/活跃用户/出账用户/分档月报/移网分档/SERVICE_TYPE/IS_IOT/DWA_V_M_CUS_CB_USER_INFO"等关键词时触发。",
+    inputSpec:
+      "输入：包含账期、省分、指标名称的自然语言问句或需求文档。素材范围：数据字典（DWA_V_M_CUS_CB_USER_INFO 等宽表结构）、码表（DIM_PROV/DIM_PRODUCT_WLW/DIM_PRODUCT_PRIVACY_NUMBER）、样例 SQL、指标口径知识库、需求文件。",
+    steps:
+      "1) 识别移网用户筛选条件：SUBSTR(SERVICE_TYPE,1,2) IN ('40','50'), IS_IOT='0', IS_STAT='1'；2) 对齐需求列与指标口径（在网/新发展/出账/三无/活跃）；3) 确定主表与关联表（用户信息宽表+融合表+码表维表）；4) 按样例 SQL 风格生成 HiveSQL 并逐行标注依据；5) 校验字段顺序、口径完整性与方言适配。",
+    checkCriteria:
+      "移网用户筛选条件完整（SERVICE_TYPE+IS_IOT+IS_STAT）；每个指标列标注口径来源；物联网/隐私号/行短分档逻辑与码表一致；COUNT(DISTINCT USER_ID) 防重复；输出可直接在 Hive/MaxCompute 执行。",
+    abortCondition:
+      "素材中未提供目标指标的口径定义或核心宽表结构缺失时中止，明确告知缺失项。",
+    recoveryMethod:
+      "补充对应的数据字典/指标口径条目或更新码表内容后重新执行。",
+  },
 ];
 
 const seededBusinessMetrics: BusinessMetricSnapshot[] = [
@@ -430,6 +474,16 @@ const text2sqlKBDetail: KnowledgeSystemDetail = {
   },
 };
 
+const mobileUserKBDetail: KnowledgeSystemDetail = {
+  ...baseDetail,
+  systemId: "ks-005",
+  skillId: "skill-005",
+  dataSource: {
+    ...baseDetail.dataSource,
+    name: "移网用户统计素材库",
+  },
+};
+
 export const seededDomainData: DomainData = {
   knowledgeSystems: [
     {
@@ -472,12 +526,24 @@ export const seededDomainData: DomainData = {
       owner: "平台官方",
       updatedAt: now,
     },
+    {
+      id: "ks-005",
+      skillId: "skill-005",
+      name: "移网用户统计素材库",
+      description:
+        "基于移网用户统计/分档月报的数据字典、码表、样例SQL、指标口径与需求文档，为移网取数场景提供 RAG 语义检索上下文",
+      datasetCount: 0,
+      metricCount: 0,
+      owner: "赵金慧",
+      updatedAt: now,
+    },
   ],
   knowledgeDetails: {
     "ks-001": baseDetail,
     "ks-002": secondaryDetail,
     "ks-003": thirdDetail,
     "ks-004": text2sqlKBDetail,
+    "ks-005": mobileUserKBDetail,
   },
   glossaryTerms: [
     {
@@ -711,6 +777,38 @@ export const seededDomainData: DomainData = {
       createdAt: now,
       updatedAt: now,
       versionHistory: [{ at: now, summary: "初始化：Text2SQL 经营指标落地模板" }],
+    },
+    {
+      id: "ske-seed-005",
+      skillId: "skill-005",
+      title: "移网用户统计取数",
+      summary:
+        "面向移网用户规模统计与分档月报：基于 DWA_V_M_CUS_CB_USER_INFO 主表，通过 SERVICE_TYPE 前两位 IN (40,50)、IS_IOT='0'、IS_STAT='1' 界定移网统计用户，关联省分/物联网/隐私号码表完成分档，输出在网/新发展/出账/三无/活跃等指标的 HiveSQL。",
+      triggerCondition:
+        "触发：移网/移网用户/在网用户/新发展用户/三无用户/活跃用户/出账用户/分档月报/移网分档/SERVICE_TYPE/IS_IOT/DWA_V_M_CUS_CB_USER_INFO；或涉及移网用户规模与经营分析取数。",
+      inputSpec:
+        "输入：含账期(MONTH_ID)、省分、指标名称的自然语言问句；上下文：数据字典（宽表字段）、码表（DIM_PROV/DIM_PRODUCT_WLW/DIM_PRODUCT_PRIVACY_NUMBER）、样例SQL、指标口径知识库、需求文件。",
+      steps:
+        "1) 确认移网用户筛选：SUBSTR(SERVICE_TYPE,1,2) IN ('40','50'), IS_IOT='0', IS_STAT='1'；2) 对齐口径：在网(IS_INNET='1'), 新发展(IS_THIS_DEV='1'), 出账(IS_ACCT='1'), 三无/活跃按用量阈值；3) 确定关联表：DWA_V_M_CUS_CB_USER_INFO LEFT JOIN DWA_V_M_CUS_CB_OM_DATUM/DIM_PROV/DIM_PRODUCT_WLW/DIM_PRODUCT_PRIVACY_NUMBER；4) 生成 HiveSQL 并标注每列依据；5) 校验与方言适配。",
+      checkCriteria:
+        "移网筛选三要素完整；每个指标列标注口径来源文件；物联网/隐私号/行短分档与码表一致；COUNT(DISTINCT USER_ID)；可直接执行。",
+      abortCondition:
+        "目标指标口径未在素材中找到定义或核心宽表结构缺失时中止。",
+      recoveryMethod: "补充数据字典/指标口径/码表后重新执行。",
+      extractedTermIds: [],
+      attachments: [
+        { type: "document", name: "s1.5 - 副本 (2)/2.码表内容.md" },
+        { type: "document", name: "s1.5 - 副本 (2)/3.样例sql.md" },
+        { type: "document", name: "s1.5 - 副本 (2)/5.1 需求文档-移网用户统计.md" },
+        { type: "document", name: "s1.5 - 副本 (2)/5.2 需求文档-移网用户分档月报.md" },
+        { type: "document", name: "s1.5 - 副本 (2)/6.需求说明及输出要求.md" },
+        { type: "other", name: "s1.5 - 副本 (2)/1.数据字典 .xlsx" },
+        { type: "other", name: "s1.5 - 副本 (2)/4.指标口径知识库.xlsx" },
+      ],
+      source: "skill_create",
+      createdAt: now,
+      updatedAt: now,
+      versionHistory: [{ at: now, summary: "基于 s1.5 移网素材文件夹生成" }],
     },
   ],
   questionLabelingJobs: [],

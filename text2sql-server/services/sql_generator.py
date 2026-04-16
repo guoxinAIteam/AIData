@@ -107,22 +107,28 @@ _SYSTEM_PROMPT = """\
 def _intent_to_query(intent: dict[str, Any]) -> str:
     """Extract a search query from the structured intent for RAG retrieval."""
     parts: list[str] = []
-    if intent.get("metrics"):
-        for m in intent["metrics"]:
-            if isinstance(m, dict):
-                parts.append(m.get("name", ""))
-            elif isinstance(m, str):
-                parts.append(m)
-    if intent.get("dimensions"):
-        for d in intent["dimensions"]:
-            if isinstance(d, str):
-                parts.append(d)
-    if intent.get("filters"):
-        for f in intent["filters"]:
-            if isinstance(f, dict):
-                parts.append(f.get("field", ""))
+    metrics = intent.get("metrics") or intent.get("target_metrics") or []
+    for m in metrics:
+        if isinstance(m, dict):
+            parts.append(m.get("name", ""))
+        elif isinstance(m, str):
+            parts.append(m)
+    dims = intent.get("dimensions") or []
+    for d in dims:
+        if isinstance(d, str):
+            parts.append(d)
+    filters = intent.get("filters") or []
+    for f in filters:
+        if isinstance(f, dict):
+            parts.append(f.get("field", ""))
+    notes = intent.get("notes") or []
+    for n in notes:
+        if isinstance(n, str):
+            parts.append(n)
     if intent.get("description"):
         parts.append(str(intent["description"]))
+    if intent.get("period"):
+        parts.append(str(intent["period"]))
     return " ".join(p for p in parts if p)
 
 
