@@ -75,6 +75,34 @@ const seededSkillItems: SkillItem[] = [
     version: "1.0",
     importSource: "manual",
   },
+  {
+    id: "skill-004",
+    name: "Text2SQL 经营指标智能取数（模板）",
+    summary:
+      "基于数据字典/指标口径/码表/样例SQL/需求文档的“规则优先 + LLM 兜底”取数能力，输出字段对照表 + SQL + 执行说明，并提供 Skill 命中证据。",
+    category: "数据分析",
+    tags: ["Text2SQL", "经营指标问数", "指标口径", "移网", "SQL生成", "校验", "方言转换"],
+    applicableScenes: ["经营指标问数（高级模式）", "自助取数", "指标口径对齐", "Hive/MaxCompute SQL 生成"],
+    content:
+      "该 Skill 固化了 6 类素材的抽取与问数流程：先抽取 meta 知识库，再解析需求为结构化意图，按规则优先生成候选 SQL，并在必要时调用 LLM 补全优化，最后输出校验与交付物。",
+    source: "platform",
+    author: "平台官方",
+    updatedAt: now,
+    status: "enabled",
+    isCustom: false,
+    isOfficial: true,
+    version: "1.0",
+    importSource: "manual",
+    triggerCondition: "用户提到“取数/写SQL/数据需求/text2sql”，或输入自然语言/需求文档希望生成可执行 SQL。",
+    inputSpec:
+      "输入自然语言问句或 Markdown 需求文档；素材范围限定为：数据字典、码表、样例SQL、指标口径、需求文件、输出要求（仅使用提供的文件信息）。",
+    steps:
+      "阶段0 初始化与抽取 meta；阶段1 需求解析为结构化意图；阶段2 生成字段对照表与 SQL（逐行注明依据）；阶段3 SQL 校验与方言转换；阶段4 输出执行说明与可下载交付物。",
+    checkCriteria:
+      "输出字段与需求文件一致；每个核心口径/过滤都标注依据；缺失信息用 [待补充] 明示；返回 matched_skill_rule / fallback_reason 等可解释字段。",
+    abortCondition: "素材中不存在相关信息或冲突无法裁决时中止，并明确输出原因与依据。",
+    recoveryMethod: "补充/修正素材（数据字典/指标口径/需求文件），重新执行抽取与生成。",
+  },
 ];
 
 const seededBusinessMetrics: BusinessMetricSnapshot[] = [
@@ -636,7 +664,34 @@ export const seededDomainData: DomainData = {
   ] as OperationLogEntry[],
   modelUsageRecords: [],
   metricQAHistory: [],
-  skillKnowledgeEntries: [],
+  skillKnowledgeEntries: [
+    {
+      id: "ske-seed-004",
+      skillId: "skill-004",
+      title: "Text2SQL 经营指标智能取数（模板）",
+      summary:
+        "面向经营指标高级问数的 Text2SQL 模板：从 6 类素材抽取 meta，解析问句/需求文档为结构化意图，规则优先产出候选 SQL，并提供校验、方言转换与可解释命中证据。",
+      triggerCondition: "触发：取数/写 SQL/数据需求/text2sql；或需要把经营指标需求转成可执行 SQL。",
+      inputSpec:
+        "输入：自然语言问句或 Markdown 需求文档；上下文：仅使用项目内提供的 6 类素材（数据字典/码表/样例SQL/指标口径/需求文件/输出要求）。",
+      steps:
+        "1) 抽取 meta：schema/metrics/code_tables/sample_sql；2) 解析需求得到 intent；3) 规则优先生成/补全 SQL；4) 校验与方言转换；5) 输出字段对照表 + SQL + 执行说明。",
+      checkCriteria:
+        "字段顺序与需求文件一致；每列/每条件标注依据；冲突按优先级处理；缺失口径不编造；返回 Skill 命中状态与回退原因。",
+      abortCondition: "素材缺失/冲突无法裁决/无法定位表字段时中止，输出“无法基于现有文件给出回答”。",
+      recoveryMethod: "补齐或修正素材与口径库，再重新执行抽取与生成。",
+      extractedTermIds: [],
+      attachments: [
+        { type: "document", name: "text2sql-server/SKILL.md" },
+        { type: "document", name: "text2sql-server/docs/material_standardization.md" },
+        { type: "document", name: "text2sql-server/docs/validation_checklist.md" },
+      ],
+      source: "skill_create",
+      createdAt: now,
+      updatedAt: now,
+      versionHistory: [{ at: now, summary: "初始化：Text2SQL 经营指标落地模板" }],
+    },
+  ],
   questionLabelingJobs: [],
 };
 
