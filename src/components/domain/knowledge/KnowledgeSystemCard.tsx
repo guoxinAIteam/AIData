@@ -1,4 +1,4 @@
-import { DeleteOutlined, EditOutlined, EyeOutlined, ShareAltOutlined } from "@ant-design/icons";
+import { CloudUploadOutlined, DeleteOutlined, EditOutlined, EyeOutlined, ShareAltOutlined } from "@ant-design/icons";
 import { App as AntdApp, Button, Card, Col, Popconfirm, Row, Space, Statistic, Typography } from "antd";
 import type { KnowledgeSystemCard as KnowledgeSystemCardType } from "../../../types/domain";
 
@@ -7,11 +7,12 @@ interface KnowledgeSystemCardProps {
   onManage: (id: string) => void;
   onView: (id: string) => void;
   onDelete: (id: string) => void;
+  onUpload?: (id: string) => void;
   /** 是否为该知识库对应 Skill 的创建者（仅创建者可见删除） */
   isCreator?: boolean;
 }
 
-export function KnowledgeSystemCard({ system, onManage, onView, onDelete, isCreator = true }: KnowledgeSystemCardProps) {
+export function KnowledgeSystemCard({ system, onManage, onView, onDelete, onUpload, isCreator = true }: KnowledgeSystemCardProps) {
   const { message } = AntdApp.useApp();
 
   return (
@@ -66,12 +67,19 @@ export function KnowledgeSystemCard({ system, onManage, onView, onDelete, isCrea
         更新人：{system.owner} · 更新时间：{system.updatedAt}
       </Typography.Paragraph>
 
-      <Space>
+      <Space wrap>
         <Button size="small" icon={<EyeOutlined />} onClick={() => onView(system.id)}>
           查看语义知识视图
         </Button>
         <Button size="small" type="primary" onClick={() => onManage(system.id)}>
           语义知识管理
+        </Button>
+        <Button
+          size="small"
+          icon={<CloudUploadOutlined />}
+          onClick={() => onUpload?.(system.id)}
+        >
+          素材上传
         </Button>
       </Space>
     </Card>

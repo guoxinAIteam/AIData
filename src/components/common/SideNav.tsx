@@ -66,28 +66,29 @@ export function SideNav() {
 
     const topLevel = filtered.filter((item) => !item.parentKey);
     const groups = Object.values(menuGroups);
-
     const result: MenuItem[] = [];
     const allGroupKeys: string[] = [];
-    let topInserted = false;
 
-    for (const item of topLevel) {
-      result.push({
-        key: item.route,
-        icon: iconMap[item.route] ?? <DotChartOutlined />,
-        label: item.label,
-      });
-    }
+    const tailRoutes = new Set(["/domain/operation-logs"]);
+    const headItem = topLevel.find((i) => i.route === "/domain/workbench");
+    const midItems = topLevel.filter((i) => i.route !== "/domain/workbench" && !tailRoutes.has(i.route));
+    const tailItems = topLevel.filter((i) => tailRoutes.has(i.route));
 
-    const insertIdx = result.findIndex((r) => r.key === "/domain/workbench");
-    let insertPos = insertIdx >= 0 ? insertIdx + 1 : result.length;
+    const toMenuItem = (item: (typeof topLevel)[number]): MenuItem => ({
+      key: item.route,
+      icon: iconMap[item.route] ?? <DotChartOutlined />,
+      label: item.label,
+    });
+
+    if (headItem) result.push(toMenuItem(headItem));
+
+    for (const item of midItems) result.push(toMenuItem(item));
 
     for (const group of groups) {
       const children = filtered.filter((item) => item.parentKey === group.key);
       if (children.length === 0) continue;
-
       allGroupKeys.push(group.key);
-      const groupItem: MenuItem = {
+      result.push({
         key: group.key,
         icon: groupIconMap[group.key] ?? <DotChartOutlined />,
         label: group.label,
@@ -96,11 +97,10 @@ export function SideNav() {
           label: c.label,
           icon: iconMap[c.route] ?? <DotChartOutlined />,
         })),
-      };
-
-      result.splice(insertPos, 0, groupItem);
-      insertPos++;
+      });
     }
+
+    for (const item of tailItems) result.push(toMenuItem(item));
 
     return { flatItems: result, groupKeys: allGroupKeys };
   }, [session]);

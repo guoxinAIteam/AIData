@@ -43,7 +43,6 @@ export const menuPermissionItems: MenuPermissionItem[] = [
     route: "/domain/knowledge-systems",
     label: "语义知识库",
     permissionCode: "menu.knowledgeSystem",
-    parentKey: "knowledge-center",
   },
   {
     key: "ontology-modeling",

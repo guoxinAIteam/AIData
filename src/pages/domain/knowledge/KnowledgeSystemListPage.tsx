@@ -121,6 +121,7 @@ export function KnowledgeSystemListPage() {
                 isCreator={item.skillId ? myCreatorSkillIds.has(item.skillId) : false}
                 onView={(id) => navigate(`/domain/knowledge-systems/${id}/manage/datasets`)}
                 onManage={(id) => navigate(`/domain/knowledge-systems/${id}/manage/datasource`)}
+                onUpload={(id) => navigate(`/domain/knowledge-systems/${id}/manage/rag`)}
                 onDelete={(id) => {
                   void (async () => {
                     const session = authApi.getSessionSync();
