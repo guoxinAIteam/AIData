@@ -712,7 +712,7 @@ export function MetricQAPage() {
           )}
         </Card>
 
-        <Card title="经营指标问数">
+        <Card title="智能指标问数">
           <Space direction="vertical" size={12} style={{ width: "100%" }}>
             <div>
               <span style={{ marginRight: 8 }}>绑定 Skill（可选）：</span>

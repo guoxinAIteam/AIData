@@ -1,9 +1,11 @@
 import {
   ApiOutlined,
   BookOutlined,
+  CloudServerOutlined,
   DashboardOutlined,
   HistoryOutlined,
   RiseOutlined,
+  SearchOutlined,
   ThunderboltOutlined,
   TagsOutlined,
   UnorderedListOutlined,
@@ -25,22 +27,22 @@ import { SkillCarousel } from "../../../components/domain/workbench/SkillCarouse
 
 const quickEntries = [
   {
+    title: "智能指标问数",
+    desc: "自然语言提问，RAG 检索知识库上下文，自动生成可执行 SQL。",
+    to: "/domain/metric-qa",
+    icon: <SearchOutlined style={{ fontSize: 28, color: "#1677ff" }} />,
+  },
+  {
+    title: "语义知识库",
+    desc: "管理数据集、指标、维度，RAG 素材切片与语义检索。",
+    to: "/domain/knowledge-systems",
+    icon: <CloudServerOutlined style={{ fontSize: 28, color: "#1677ff" }} />,
+  },
+  {
     title: "Skill 库",
     desc: "查看技能排行、详情与用户自定义 Skill 管理。",
     to: "/domain/skills",
     icon: <ThunderboltOutlined style={{ fontSize: 28, color: "#1677ff" }} />,
-  },
-  {
-    title: "经营指标问数",
-    desc: "通过自然语言与筛选条件快速查询核心经营指标。",
-    to: "/domain/metric-qa",
-    icon: <RiseOutlined style={{ fontSize: 28, color: "#1677ff" }} />,
-  },
-  {
-    title: "语义知识库",
-    desc: "维护数据集、指标、维度与权限，支撑问数能力。",
-    to: "/domain/knowledge-systems",
-    icon: <BookOutlined style={{ fontSize: 28, color: "#1677ff" }} />,
   },
   {
     title: "样本打标",
@@ -53,6 +55,12 @@ const quickEntries = [
     desc: "维护业务术语、同义词与解释，支撑语义匹配。",
     to: "/domain/glossary",
     icon: <UnorderedListOutlined style={{ fontSize: 28, color: "#1677ff" }} />,
+  },
+  {
+    title: "本体知识建模",
+    desc: "构建领域本体概念、属性与关系，驱动知识图谱推理。",
+    to: "/domain/ontology-modeling",
+    icon: <BookOutlined style={{ fontSize: 28, color: "#1677ff" }} />,
   },
 ];
 

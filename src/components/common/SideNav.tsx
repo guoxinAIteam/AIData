@@ -1,24 +1,26 @@
 import {
+  ApartmentOutlined,
+  AppstoreOutlined,
   BookOutlined,
+  CloudServerOutlined,
   DatabaseOutlined,
   DotChartOutlined,
   FundProjectionScreenOutlined,
   LaptopOutlined,
   ReadOutlined,
   RobotOutlined,
+  SearchOutlined,
   SnippetsOutlined,
-  ApartmentOutlined,
   TagsOutlined,
-  AppstoreOutlined,
+  ThunderboltOutlined,
 } from "@ant-design/icons";
 import { Layout, Menu, Space, Typography } from "antd";
 import type { MenuProps } from "antd";
 import { useMemo, useState, useEffect, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
-  applicationScenarioLabel,
-  applicationScenarioMenuKey,
   hasPermission,
+  menuGroups,
   menuPermissionItems,
   resolveMenuKeyByPath,
 } from "../../config/permissionMap";
@@ -33,9 +35,15 @@ const iconMap: Record<string, ReactNode> = {
   "/domain/glossary": <ReadOutlined />,
   "/domain/operation-logs": <FundProjectionScreenOutlined />,
   "/domain/skills": <RobotOutlined />,
-  "/domain/metric-qa": <BookOutlined />,
+  "/domain/metric-qa": <SearchOutlined />,
   "/domain/ontology-modeling": <ApartmentOutlined />,
   "/domain/question-labeling": <TagsOutlined />,
+};
+
+const groupIconMap: Record<string, ReactNode> = {
+  "knowledge-center": <CloudServerOutlined />,
+  "skill-center": <ThunderboltOutlined />,
+  "app-scenario": <AppstoreOutlined />,
 };
 
 type MenuItem = {
@@ -51,53 +59,60 @@ export function SideNav() {
   const session = useAppSelector((state) => state.auth.session);
   const [openKeys, setOpenKeys] = useState<string[]>([]);
 
-  const { flatItems } = useMemo(() => {
-    const filtered = menuPermissionItems.filter((item) => hasPermission(session, item.permissionCode));
-    const appScenario = filtered.filter((item) => item.parentKey === applicationScenarioMenuKey);
-    const topLevel = filtered.filter((item) => item.parentKey !== applicationScenarioMenuKey);
-    const flat: MenuItem[] = [];
+  const { flatItems, groupKeys } = useMemo(() => {
+    const filtered = menuPermissionItems.filter((item) =>
+      hasPermission(session, item.permissionCode),
+    );
+
+    const topLevel = filtered.filter((item) => !item.parentKey);
+    const groups = Object.values(menuGroups);
+
+    const result: MenuItem[] = [];
+    const allGroupKeys: string[] = [];
+    let topInserted = false;
+
     for (const item of topLevel) {
-      if (item.key === "ontology-modeling" && appScenario.length > 0) {
-        flat.push({
-          key: applicationScenarioMenuKey,
-          icon: <AppstoreOutlined />,
-          label: applicationScenarioLabel,
-          children: appScenario.map((c) => ({
-            key: c.route,
-            label: c.label,
-            icon: iconMap[c.route] ?? <DotChartOutlined />,
-          })),
-        });
-      }
-      flat.push({
+      result.push({
         key: item.route,
         icon: iconMap[item.route] ?? <DotChartOutlined />,
         label: item.label,
       });
     }
-    if (appScenario.length > 0 && !flat.some((r) => r.key === applicationScenarioMenuKey)) {
-      flat.push({
-        key: applicationScenarioMenuKey,
-        icon: <AppstoreOutlined />,
-        label: applicationScenarioLabel,
-        children: appScenario.map((c) => ({
+
+    const insertIdx = result.findIndex((r) => r.key === "/domain/workbench");
+    let insertPos = insertIdx >= 0 ? insertIdx + 1 : result.length;
+
+    for (const group of groups) {
+      const children = filtered.filter((item) => item.parentKey === group.key);
+      if (children.length === 0) continue;
+
+      allGroupKeys.push(group.key);
+      const groupItem: MenuItem = {
+        key: group.key,
+        icon: groupIconMap[group.key] ?? <DotChartOutlined />,
+        label: group.label,
+        children: children.map((c) => ({
           key: c.route,
           label: c.label,
           icon: iconMap[c.route] ?? <DotChartOutlined />,
         })),
-      });
+      };
+
+      result.splice(insertPos, 0, groupItem);
+      insertPos++;
     }
-    return { flatItems: flat };
+
+    return { flatItems: result, groupKeys: allGroupKeys };
   }, [session]);
 
   useEffect(() => {
-    const hasAppScenario = flatItems.some((item) => item.key === applicationScenarioMenuKey);
-    if (hasAppScenario) {
-      setOpenKeys((prev) =>
-        prev.includes(applicationScenarioMenuKey) ? prev : [...prev, applicationScenarioMenuKey],
-      );
+    if (groupKeys.length > 0) {
+      setOpenKeys((prev) => {
+        const newKeys = groupKeys.filter((k) => !prev.includes(k));
+        return newKeys.length > 0 ? [...prev, ...newKeys] : prev;
+      });
     }
-  }, [pathname, flatItems]);
+  }, [pathname, groupKeys]);
 
   const selectedKeys = useMemo(() => [resolveMenuKeyByPath(pathname)], [pathname]);
 

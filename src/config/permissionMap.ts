@@ -20,10 +20,16 @@ export interface MenuPermissionItem {
   parentKey?: string;
 }
 
-/** 「应用场景」分组 key，用于侧栏子菜单 */
-export const applicationScenarioMenuKey = "app-scenario";
-/** 「应用场景」分组展示名称 */
-export const applicationScenarioLabel = "应用场景";
+/** 菜单分组定义 */
+export const menuGroups = {
+  knowledgeCenter: { key: "knowledge-center", label: "知识中心" },
+  skillCenter: { key: "skill-center", label: "Skill 中心" },
+  appScenario: { key: "app-scenario", label: "应用场景" },
+} as const;
+
+/** 向后兼容：旧代码引用 */
+export const applicationScenarioMenuKey = menuGroups.appScenario.key;
+export const applicationScenarioLabel = menuGroups.appScenario.label;
 
 export const menuPermissionItems: MenuPermissionItem[] = [
   {
@@ -33,47 +39,46 @@ export const menuPermissionItems: MenuPermissionItem[] = [
     permissionCode: "menu.workbench",
   },
   {
-    key: "skill-ranking",
-    route: "/domain/skills",
-    label: "Skill 库",
-    permissionCode: "menu.skillRanking",
-  },
-  {
     key: "knowledge-system",
     route: "/domain/knowledge-systems",
     label: "语义知识库",
     permissionCode: "menu.knowledgeSystem",
-  },
-  {
-    key: "metric-qa",
-    route: "/domain/metric-qa",
-    label: "经营指标问数",
-    permissionCode: "menu.metricQa",
-    parentKey: "app-scenario",
+    parentKey: "knowledge-center",
   },
   {
     key: "ontology-modeling",
     route: "/domain/ontology-modeling",
     label: "本体知识建模",
     permissionCode: "menu.ontologyModeling",
-  },
-  {
-    key: "example-question",
-    route: "/domain/example-questions",
-    label: "示例问题库",
-    permissionCode: "menu.exampleQuestion",
+    parentKey: "knowledge-center",
   },
   {
     key: "glossary",
     route: "/domain/glossary",
     label: "业务术语词典",
     permissionCode: "menu.glossary",
+    parentKey: "knowledge-center",
   },
   {
-    key: "operation-log",
-    route: "/domain/operation-logs",
-    label: "操作日志",
-    permissionCode: "menu.operationLog",
+    key: "example-question",
+    route: "/domain/example-questions",
+    label: "示例问题库",
+    permissionCode: "menu.exampleQuestion",
+    parentKey: "knowledge-center",
+  },
+  {
+    key: "skill-ranking",
+    route: "/domain/skills",
+    label: "Skill 库",
+    permissionCode: "menu.skillRanking",
+    parentKey: "skill-center",
+  },
+  {
+    key: "metric-qa",
+    route: "/domain/metric-qa",
+    label: "智能指标问数",
+    permissionCode: "menu.metricQa",
+    parentKey: "app-scenario",
   },
   {
     key: "question-labeling",
@@ -81,6 +86,12 @@ export const menuPermissionItems: MenuPermissionItem[] = [
     label: "样本打标",
     permissionCode: "menu.questionLabeling",
     parentKey: "app-scenario",
+  },
+  {
+    key: "operation-log",
+    route: "/domain/operation-logs",
+    label: "操作日志",
+    permissionCode: "menu.operationLog",
   },
 ];
 
