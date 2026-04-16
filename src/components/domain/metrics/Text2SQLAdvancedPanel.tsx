@@ -8,6 +8,17 @@ export interface FieldMapping {
   calculation_logic: string;
 }
 
+export interface RAGChunkInfo {
+  id: string;
+  text: string;
+  score?: number;
+  metadata?: {
+    source_file?: string;
+    chunk_type?: string;
+    section_title?: string;
+  };
+}
+
 export interface Text2SQLResult {
   field_mapping: FieldMapping[];
   sql: string;
@@ -17,13 +28,7 @@ export interface Text2SQLResult {
   matched_skill_rule?: boolean;
   matched_rule_names?: string[];
   fallback_reason?: string | null;
-  used_rag_context?: boolean;
-  rag_chunks_used?: Array<{
-    id?: string;
-    text: string;
-    score?: number;
-    metadata?: { source_file?: string; section_title?: string; sheet_name?: string };
-  }>;
+  rag_chunks_used?: RAGChunkInfo[];
 }
 
 export interface StructuredIntent {
@@ -173,30 +178,36 @@ export function Text2SQLAdvancedPanel({ intent, sqlResult, loading }: Text2SQLAd
         </Card>
       )}
 
-      {sqlResult && (
+      {sqlResult && (sqlResult.rag_chunks_used ?? []).length > 0 && (
         <Card title="RAG 检索命中" size="small">
-          <Space wrap style={{ marginBottom: 8 }}>
-            <Tag color={sqlResult.used_rag_context ? "success" : "default"}>
-              {sqlResult.used_rag_context ? "RAG-first 生效" : "使用 meta 兜底"}
-            </Tag>
-            <Tag>命中切片：{sqlResult.rag_chunks_used?.length ?? 0}</Tag>
-          </Space>
-          {(sqlResult.rag_chunks_used ?? []).length > 0 ? (
-            <Collapse
-              size="small"
-              items={(sqlResult.rag_chunks_used ?? []).map((chunk, i) => ({
-                key: `${chunk.id ?? i}`,
-                label: `${chunk.metadata?.source_file ?? "unknown"} ${chunk.score != null ? `(score=${chunk.score.toFixed(4)})` : ""}`,
-                children: (
-                  <Typography.Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>
-                    {chunk.text}
-                  </Typography.Paragraph>
-                ),
-              }))}
-            />
-          ) : (
-            <Typography.Text type="secondary">当前问题未命中向量切片，已回退到 meta 文件上下文。</Typography.Text>
-          )}
+          <Typography.Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
+            基于语义检索匹配了 {sqlResult.rag_chunks_used!.length} 个知识切片（RAG-first 策略）
+          </Typography.Text>
+          <Collapse
+            size="small"
+            items={(sqlResult.rag_chunks_used ?? []).map((chunk, i) => ({
+              key: String(i),
+              label: (
+                <Space>
+                  <Tag color="purple">#{i + 1}</Tag>
+                  <Tag>{chunk.metadata?.source_file ?? "unknown"}</Tag>
+                  {chunk.metadata?.section_title && (
+                    <Tag color="cyan">{chunk.metadata.section_title}</Tag>
+                  )}
+                  <Typography.Text type="secondary">
+                    相似度: {((chunk.score ?? 0) * 100).toFixed(1)}%
+                  </Typography.Text>
+                </Space>
+              ),
+              children: (
+                <Typography.Paragraph
+                  style={{ whiteSpace: "pre-wrap", fontSize: 12, margin: 0, maxHeight: 200, overflow: "auto" }}
+                >
+                  {chunk.text}
+                </Typography.Paragraph>
+              ),
+            }))}
+          />
         </Card>
       )}
 

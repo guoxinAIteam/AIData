@@ -420,6 +420,16 @@ const thirdDetail: KnowledgeSystemDetail = {
   skillId: "skill-003",
 };
 
+const text2sqlKBDetail: KnowledgeSystemDetail = {
+  ...baseDetail,
+  systemId: "ks-004",
+  skillId: "skill-004",
+  dataSource: {
+    ...baseDetail.dataSource,
+    name: "Text2SQL 经营指标素材库",
+  },
+};
+
 export const seededDomainData: DomainData = {
   knowledgeSystems: [
     {
@@ -452,11 +462,22 @@ export const seededDomainData: DomainData = {
       owner: "李晨",
       updatedAt: now,
     },
+    {
+      id: "ks-004",
+      skillId: "skill-004",
+      name: "Text2SQL 经营指标素材库",
+      description: "基于数据字典/指标口径/码表/样例SQL/需求文档的 RAG 向量化知识库，为高级问数提供语义检索上下文",
+      datasetCount: 0,
+      metricCount: 0,
+      owner: "平台官方",
+      updatedAt: now,
+    },
   ],
   knowledgeDetails: {
     "ks-001": baseDetail,
     "ks-002": secondaryDetail,
     "ks-003": thirdDetail,
+    "ks-004": text2sqlKBDetail,
   },
   glossaryTerms: [
     {

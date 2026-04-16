@@ -1,162 +1,200 @@
-"""Document chunking utilities for RAG ingestion."""
+"""Document chunker: split files into retrieval-friendly chunks.
+
+Supported formats: Markdown (.md), Excel (.xlsx), plain text (.txt).
+Each chunk carries metadata (source file, type, section) for traceability.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
-import hashlib
 import re
+import uuid
+from pathlib import Path
 from typing import Any
 
-from openpyxl import load_workbook
-
+try:
+    import openpyxl
+except Exception:
+    openpyxl = None
 
 MAX_CHUNK_CHARS = 500
 OVERLAP_CHARS = 50
 
 
-@dataclass
-class Chunk:
-    """Normalized chunk for vector ingestion."""
-
-    id: str
-    text: str
-    metadata: dict[str, Any]
+def _make_id() -> str:
+    return uuid.uuid4().hex[:12]
 
 
-def chunk_file(path: str | Path) -> list[Chunk]:
-    """Chunk a file by extension."""
-    p = Path(path)
-    suffix = p.suffix.lower()
-    if suffix == ".md":
-        return _chunk_markdown(p)
-    if suffix in {".txt"}:
-        return _chunk_text(p)
-    if suffix in {".xlsx", ".xlsm"}:
-        return _chunk_excel(p)
-    raise ValueError(f"unsupported file type: {p.name}")
-
-
-def _stable_chunk_id(source_file: str, index: int, text: str) -> str:
-    digest = hashlib.sha1(f"{source_file}:{index}:{text}".encode("utf-8")).hexdigest()[:16]
-    return f"chk-{digest}"
-
-
-def _sliding_windows(text: str, *, max_chars: int = MAX_CHUNK_CHARS, overlap: int = OVERLAP_CHARS) -> list[str]:
-    t = re.sub(r"\s+", " ", text).strip()
-    if not t:
-        return []
-    if len(t) <= max_chars:
-        return [t]
-    windows: list[str] = []
+def _sliding_window(text: str, *, max_chars: int = MAX_CHUNK_CHARS, overlap: int = OVERLAP_CHARS) -> list[str]:
+    """Split long text into overlapping windows."""
+    if len(text) <= max_chars:
+        return [text]
+    chunks: list[str] = []
     start = 0
-    step = max(1, max_chars - overlap)
-    while start < len(t):
-        part = t[start : start + max_chars].strip()
-        if part:
-            windows.append(part)
-        if start + max_chars >= len(t):
-            break
-        start += step
-    return windows
+    while start < len(text):
+        end = start + max_chars
+        chunks.append(text[start:end])
+        start = end - overlap
+    return chunks
 
 
-def _chunk_markdown(path: Path) -> list[Chunk]:
-    content = path.read_text(encoding="utf-8", errors="replace")
-    lines = content.splitlines()
-    sections: list[tuple[str, list[str]]] = []
-    current_title = "文档概述"
-    buffer: list[str] = []
-    for line in lines:
-        if re.match(r"^\s*#{1,6}\s+", line):
-            if buffer:
-                sections.append((current_title, buffer))
-            current_title = re.sub(r"^\s*#{1,6}\s+", "", line).strip() or "未命名章节"
-            buffer = []
+def chunk_markdown(text: str, *, source_file: str = "") -> list[dict[str, Any]]:
+    """Split markdown by ## headings, then apply sliding window if needed."""
+    sections: list[tuple[str, str]] = []
+    current_title = ""
+    current_lines: list[str] = []
+
+    for line in text.splitlines():
+        if re.match(r"^#{1,3}\s+", line):
+            if current_lines:
+                sections.append((current_title, "\n".join(current_lines).strip()))
+            current_title = line.lstrip("#").strip()
+            current_lines = [line]
+        else:
+            current_lines.append(line)
+
+    if current_lines:
+        sections.append((current_title, "\n".join(current_lines).strip()))
+
+    chunks: list[dict[str, Any]] = []
+    for title, body in sections:
+        if not body.strip():
             continue
-        buffer.append(line)
-    if buffer:
-        sections.append((current_title, buffer))
-
-    chunks: list[Chunk] = []
-    idx = 0
-    for title, body_lines in sections:
-        body = "\n".join(body_lines).strip()
-        for part in _sliding_windows(body):
-            idx += 1
-            chunks.append(
-                Chunk(
-                    id=_stable_chunk_id(path.name, idx, part),
-                    text=part,
-                    metadata={
-                        "source_file": path.name,
-                        "chunk_type": "markdown_section",
-                        "section_title": title,
-                        "chunk_index": idx,
-                    },
-                )
-            )
+        for window in _sliding_window(body):
+            chunks.append({
+                "id": _make_id(),
+                "text": window,
+                "metadata": {
+                    "source_file": source_file,
+                    "chunk_type": "markdown_section",
+                    "section_title": title,
+                },
+            })
     return chunks
 
 
-def _chunk_text(path: Path) -> list[Chunk]:
-    content = path.read_text(encoding="utf-8", errors="replace")
-    parts = [p.strip() for p in re.split(r"\n\s*\n", content) if p.strip()]
-    chunks: list[Chunk] = []
-    idx = 0
-    for para in parts:
-        for part in _sliding_windows(para):
-            idx += 1
-            chunks.append(
-                Chunk(
-                    id=_stable_chunk_id(path.name, idx, part),
-                    text=part,
-                    metadata={
-                        "source_file": path.name,
-                        "chunk_type": "text_paragraph",
-                        "chunk_index": idx,
-                    },
-                )
-            )
-    return chunks
+def chunk_excel(path: Path, *, source_file: str = "") -> list[dict[str, Any]]:
+    """Split each sheet's rows into chunks, grouped by a key column when possible."""
+    if openpyxl is None:
+        raise RuntimeError("openpyxl not installed")
 
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    chunks: list[dict[str, Any]] = []
 
-def _chunk_excel(path: Path) -> list[Chunk]:
-    wb = load_workbook(path, read_only=True, data_only=True)
-    chunks: list[Chunk] = []
-    idx = 0
-    try:
-        for ws in wb.worksheets:
-            rows = list(ws.iter_rows(values_only=True))
-            if not rows:
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        headers: list[str] = []
+        rows_data: list[list[Any]] = []
+
+        for i, row in enumerate(ws.iter_rows(values_only=True)):
+            if i == 0:
+                headers = [str(v).strip() if v else f"COL_{j}" for j, v in enumerate(row)]
                 continue
-            headers = [str(c).strip() if c is not None else "" for c in rows[0]]
-            for row_no, row in enumerate(rows[1:], start=2):
-                cells: list[str] = []
-                for i, val in enumerate(row):
-                    v = "" if val is None else str(val).strip()
-                    if not v:
-                        continue
-                    key = headers[i] if i < len(headers) and headers[i] else f"col_{i+1}"
-                    cells.append(f"{key}: {v}")
-                if not cells:
-                    continue
-                text = "；".join(cells)
-                for part in _sliding_windows(text):
-                    idx += 1
-                    chunks.append(
-                        Chunk(
-                            id=_stable_chunk_id(path.name, idx, part),
-                            text=part,
-                            metadata={
-                                "source_file": path.name,
-                                "chunk_type": "excel_row",
-                                "sheet_name": ws.title,
-                                "row_number": row_no,
-                                "chunk_index": idx,
-                            },
-                        )
-                    )
-    finally:
-        wb.close()
+            if all(v is None or str(v).strip() == "" for v in row):
+                continue
+            rows_data.append(list(row))
+
+        if not headers or not rows_data:
+            continue
+
+        group_col_idx = _find_group_column(headers)
+        if group_col_idx is not None:
+            groups: dict[str, list[list[Any]]] = {}
+            for row in rows_data:
+                key = str(row[group_col_idx] or "").strip() or "未知"
+                groups.setdefault(key, []).append(row)
+            for group_key, group_rows in groups.items():
+                text = _rows_to_text(headers, group_rows)
+                for window in _sliding_window(text):
+                    chunks.append({
+                        "id": _make_id(),
+                        "text": window,
+                        "metadata": {
+                            "source_file": source_file,
+                            "chunk_type": "excel_row",
+                            "section_title": f"{sheet_name} / {group_key}",
+                        },
+                    })
+        else:
+            batch_size = 10
+            for start in range(0, len(rows_data), batch_size):
+                batch = rows_data[start : start + batch_size]
+                text = _rows_to_text(headers, batch)
+                for window in _sliding_window(text):
+                    chunks.append({
+                        "id": _make_id(),
+                        "text": window,
+                        "metadata": {
+                            "source_file": source_file,
+                            "chunk_type": "excel_row",
+                            "section_title": sheet_name,
+                        },
+                    })
     return chunks
+
+
+def chunk_text(text: str, *, source_file: str = "") -> list[dict[str, Any]]:
+    """Split plain text by paragraphs (double newlines)."""
+    paragraphs = re.split(r"\n\s*\n", text)
+    chunks: list[dict[str, Any]] = []
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+        for window in _sliding_window(para):
+            chunks.append({
+                "id": _make_id(),
+                "text": window,
+                "metadata": {
+                    "source_file": source_file,
+                    "chunk_type": "text_paragraph",
+                    "section_title": "",
+                },
+            })
+    return chunks
+
+
+def chunk_file(path: Path) -> list[dict[str, Any]]:
+    """Auto-detect file type and produce chunks."""
+    suffix = path.suffix.lower()
+    source_file = path.name
+
+    if suffix in (".md", ".markdown"):
+        text = path.read_text(encoding="utf-8")
+        return chunk_markdown(text, source_file=source_file)
+    elif suffix in (".xlsx", ".xls"):
+        return chunk_excel(path, source_file=source_file)
+    elif suffix in (".txt", ".text", ".csv"):
+        text = path.read_text(encoding="utf-8")
+        return chunk_text(text, source_file=source_file)
+    else:
+        try:
+            text = path.read_text(encoding="utf-8")
+            return chunk_text(text, source_file=source_file)
+        except Exception:
+            return []
+
+
+def _find_group_column(headers: list[str]) -> int | None:
+    """Heuristic: find a column likely to be a group key (e.g. table name)."""
+    group_keywords = ("表名", "table_name", "模型名称", "sheet", "分类", "类别")
+    for i, h in enumerate(headers):
+        hl = h.lower()
+        for kw in group_keywords:
+            if kw.lower() in hl:
+                return i
+    return None
+
+
+def _rows_to_text(headers: list[str], rows: list[list[Any]]) -> str:
+    """Convert rows to a readable text block."""
+    lines: list[str] = []
+    for row in rows:
+        parts = []
+        for i, v in enumerate(row):
+            if v is None or str(v).strip() == "":
+                continue
+            h = headers[i] if i < len(headers) else f"COL_{i}"
+            parts.append(f"{h}: {v}")
+        if parts:
+            lines.append(" | ".join(parts))
+    return "\n".join(lines)

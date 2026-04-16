@@ -113,7 +113,13 @@ export function KnowledgeSystemManagePage() {
       );
     }
     if (activeKey === "rag") {
-      return <KnowledgeRAGTab systemId={id} />;
+      return (
+        <KnowledgeRAGTab
+          systemId={id}
+          onSaved={loadDetail}
+          isCreator={isCreator}
+        />
+      );
     }
     return null;
   }, [activeKey, detail, id, loadDetail]);
