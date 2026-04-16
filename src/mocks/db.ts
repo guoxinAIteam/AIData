@@ -135,7 +135,7 @@ const seededSkillItems: SkillItem[] = [
     version: "1.0",
     importSource: "manual",
     triggerCondition:
-      "用户提到"移网/移网用户/在网用户/新发展用户/三无用户/活跃用户/出账用户/分档月报/移网分档/SERVICE_TYPE/IS_IOT/DWA_V_M_CUS_CB_USER_INFO"等关键词时触发。",
+      "用户提到「移网/移网用户/在网用户/新发展用户/三无用户/活跃用户/出账用户/分档月报/移网分档/SERVICE_TYPE/IS_IOT/DWA_V_M_CUS_CB_USER_INFO」等关键词时触发。",
     inputSpec:
       "输入：包含账期、省分、指标名称的自然语言问句或需求文档。素材范围：数据字典（DWA_V_M_CUS_CB_USER_INFO 等宽表结构）、码表（DIM_PROV/DIM_PRODUCT_WLW/DIM_PRODUCT_PRIVACY_NUMBER）、样例 SQL、指标口径知识库、需求文件。",
     steps:
