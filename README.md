@@ -46,6 +46,42 @@ npm run dev
 
 **经营指标问数（Excel 数据源）**：固定路径由环境变量 `METRICS_EXCEL_PATH` 指定（未设置时使用默认路径）。在经营指标问数页可「重载」从该路径加载知识包，或「上传覆盖」上传本地 .xlsx 解析后覆盖。可预览/下载《Excel 内容标准化梳理文档》。验收目标：核心取数场景规则命中率 ≥90%，单次请求响应 ≤3 秒；取数结果与「输出数据」Sheet 列格式一致。验收示例问句：`分省新发展用户数`、`各省公众渠道新发展用户数（去除副卡）`。
 
+### Text2SQL 高级引擎（可选）
+
+经营指标问数页支持「高级模式」，启用后走 Text2SQL 5 阶段引擎（需求解析 → 逐列对齐 → 定核心表 → 码表转名 → SQL 生成），使用 FastAPI 后端服务：
+
+```bash
+# 终端 1：安装依赖并启动 FastAPI 后端
+cd text2sql-server && pip install -r requirements.txt
+python -m uvicorn main:app --port 8100 --reload
+
+# 终端 2：启动 Vite 前端
+npm run dev
+```
+
+Vite 开发服务器自动将 `/api/text2sql/*` 代理到 FastAPI `localhost:8100`。
+
+**CLI 工具**（独立于 Web 平台使用）：
+
+```bash
+cd text2sql-server
+
+# 初始化项目
+python cli.py init --name my_project --dialect hive
+
+# 从素材提取元数据
+python cli.py extract-meta --input ./raw_materials/
+
+# 校验 SQL
+python cli.py validate --sql output.sql --dialect hive
+
+# 方言转换
+python cli.py convert --input output.sql --from hive --to maxcompute
+
+# 查看元数据状态
+python cli.py status
+```
+
 ## 构建与检查
 
 ```bash

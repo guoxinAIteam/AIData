@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Python
+__pycache__
+*.pyc
+.venv
+text2sql-server/meta/*.md
+!text2sql-server/meta/.gitkeep

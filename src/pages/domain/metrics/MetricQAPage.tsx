@@ -1,8 +1,10 @@
-import { FileExcelOutlined, FilterOutlined, ReloadOutlined, SendOutlined } from "@ant-design/icons";
-import { Button, Card, Col, Collapse, Drawer, Input, Modal, Row, Select, Space, Table, Tabs, Tag, Typography, Upload, message } from "antd";
+import { FileExcelOutlined, FilterOutlined, ReloadOutlined, SendOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { Button, Card, Col, Collapse, Drawer, Input, Modal, Row, Select, Space, Switch, Table, Tabs, Tag, Typography, Upload, message } from "antd";
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { QuestionResultPanel } from "../../../components/domain/metrics/QuestionResultPanel";
+import { Text2SQLAdvancedPanel } from "../../../components/domain/metrics/Text2SQLAdvancedPanel";
+import type { StructuredIntent, Text2SQLResult } from "../../../components/domain/metrics/Text2SQLAdvancedPanel";
 import { authApi, domainApi } from "../../../services/mockApi";
 import type {
   BusinessMetricQueryResult,
@@ -56,6 +58,11 @@ export function MetricQAPage() {
   const [historyDetailSql, setHistoryDetailSql] = useState("");
   const [historyDetailExecuteResult, setHistoryDetailExecuteResult] = useState<{ outputSpec: { columns: Array<{ key: string; label: string; dataType: string }> }; outputDataRows: Record<string, unknown>[] } | null>(null);
   const [historyDetailExecuteLoading, setHistoryDetailExecuteLoading] = useState(false);
+
+  const [advancedMode, setAdvancedMode] = useState(false);
+  const [advancedIntent, setAdvancedIntent] = useState<StructuredIntent | null>(null);
+  const [advancedSqlResult, setAdvancedSqlResult] = useState<Text2SQLResult | null>(null);
+  const [advancedLoading, setAdvancedLoading] = useState(false);
 
   useEffect(() => {
     domainApi.getSkillRanking({ page: 1, pageSize: 100 }).then((r) => setSkillOptions(r.list));
@@ -269,6 +276,64 @@ export function MetricQAPage() {
       messageApi.error(e instanceof Error ? e.message : "问数请求异常");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const askAdvanced = async (overrideQuestion?: string) => {
+    const finalQuestion = overrideQuestion ?? question;
+    if (!finalQuestion.trim()) {
+      messageApi.warning("高级模式需要输入自然语言问题");
+      return;
+    }
+    setAdvancedLoading(true);
+    setAdvancedIntent(null);
+    setAdvancedSqlResult(null);
+    try {
+      const intentRes = await fetch("/api/text2sql/parse-requirement", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: finalQuestion, use_llm: true }),
+      });
+      const intentData = await intentRes.json();
+      if (!intentData.success) {
+        messageApi.error("需求解析失败");
+        return;
+      }
+      const intent: StructuredIntent = intentData.intent;
+      setAdvancedIntent(intent);
+
+      let skillContext = "";
+      if (boundSkillIds.length > 0) {
+        const entries = await Promise.all(
+          boundSkillIds.map((id) => domainApi.getSkillKnowledgeEntryBySkillId(id)),
+        );
+        const parts = entries
+          .filter((e: SkillKnowledgeEntry | null): e is SkillKnowledgeEntry => e != null)
+          .map((e) => `【${e.title}】\n${e.summary}\n触发条件：${e.triggerCondition}\n步骤：${e.steps}`);
+        if (parts.length > 0) skillContext = parts.join("\n\n");
+      }
+
+      const sqlRes = await fetch("/api/text2sql/generate-sql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ intent, dialect: "hive", skill_context: skillContext }),
+      });
+      const sqlData = await sqlRes.json();
+      if (sqlData.success) {
+        setAdvancedSqlResult({
+          field_mapping: sqlData.field_mapping ?? [],
+          sql: sqlData.sql ?? "",
+          execution_notes: sqlData.execution_notes ?? "",
+          chain_of_thought: sqlData.chain_of_thought ?? [],
+          warnings: sqlData.warnings ?? [],
+        });
+      } else {
+        messageApi.error("SQL 生成失败");
+      }
+    } catch (e) {
+      messageApi.error(e instanceof Error ? e.message : "高级模式请求异常");
+    } finally {
+      setAdvancedLoading(false);
     }
   };
 
@@ -554,8 +619,13 @@ export function MetricQAPage() {
               </Col>
             </Row>
             <Space>
-              <Button type="primary" icon={<SendOutlined />} loading={loading} onClick={() => void askQuestion()}>
-                开始问数
+              <Button
+                type="primary"
+                icon={advancedMode ? <ThunderboltOutlined /> : <SendOutlined />}
+                loading={advancedMode ? advancedLoading : loading}
+                onClick={() => advancedMode ? void askAdvanced() : void askQuestion()}
+              >
+                {advancedMode ? "高级问数" : "开始问数"}
               </Button>
               <Button
                 icon={<FilterOutlined />}
@@ -566,10 +636,23 @@ export function MetricQAPage() {
                   setMetricCode("all");
                   setResult(null);
                   setQueryMeta({});
+                  setAdvancedIntent(null);
+                  setAdvancedSqlResult(null);
                 }}
               >
                 重置条件
               </Button>
+              <Space>
+                <Switch
+                  checked={advancedMode}
+                  onChange={setAdvancedMode}
+                  checkedChildren="高级"
+                  unCheckedChildren="标准"
+                />
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {advancedMode ? "Text2SQL 5 步引擎" : "规则优先 + 大模型兜底"}
+                </Typography.Text>
+              </Space>
             </Space>
 
             <Space wrap>
@@ -580,7 +663,7 @@ export function MetricQAPage() {
                   style={{ cursor: "pointer" }}
                   onClick={() => {
                     setQuestion(item);
-                    void askQuestion(item);
+                    advancedMode ? void askAdvanced(item) : void askQuestion(item);
                   }}
                 >
                   {item}
@@ -590,7 +673,11 @@ export function MetricQAPage() {
           </Space>
         </Card>
 
-        <QuestionResultPanel result={result} loading={loading} queryMeta={queryMeta} currentHistoryId={currentHistoryId} />
+        {advancedMode ? (
+          <Text2SQLAdvancedPanel intent={advancedIntent} sqlResult={advancedSqlResult} loading={advancedLoading} />
+        ) : (
+          <QuestionResultPanel result={result} loading={loading} queryMeta={queryMeta} currentHistoryId={currentHistoryId} />
+        )}
       </Space>
             ),
           },

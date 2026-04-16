@@ -1,0 +1,32 @@
+project:
+  name: "text2sql-server"
+  dialect: "hive"
+  fallback_dialects: ["maxcompute", "spark"]
+
+paths:
+  meta_dir: "./meta"
+  prompts_dir: "./prompts"
+  templates_dir: "./templates"
+  output_dir: "./output"
+
+llm:
+  provider: "kimi"
+  model: "moonshot-v1-128k"
+  base_url: "https://api.moonshot.cn/v1"
+  temperature: 0.2
+  max_tokens: 8192
+
+output:
+  format: "markdown"
+  delimiter: "|"
+  encoding: "utf-8"
+
+validation:
+  check_syntax: true
+  check_schema: true
+  check_dialect_compat: true
+
+style:
+  indent: 4
+  uppercase_keywords: true
+  alias_style: "single_letter"
