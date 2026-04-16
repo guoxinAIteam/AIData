@@ -1,6 +1,6 @@
 import { DownloadOutlined, EyeOutlined, FileExcelOutlined, FilterOutlined, ReloadOutlined, SendOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { Button, Card, Col, Collapse, Drawer, Input, Modal, Row, Select, Space, Switch, Table, Tabs, Tag, Typography, Upload, message } from "antd";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { QuestionResultPanel } from "../../../components/domain/metrics/QuestionResultPanel";
 import { Text2SQLAdvancedPanel } from "../../../components/domain/metrics/Text2SQLAdvancedPanel";
@@ -77,6 +77,8 @@ export function MetricQAPage() {
   const [advancedIntent, setAdvancedIntent] = useState<StructuredIntent | null>(null);
   const [advancedSqlResult, setAdvancedSqlResult] = useState<Text2SQLResult | null>(null);
   const [advancedLoading, setAdvancedLoading] = useState(false);
+  const autoIngestedCollectionsRef = useRef<Set<string>>(new Set());
+  const [boundCollectionStatus, setBoundCollectionStatus] = useState<{ id: string; chunkCount: number } | null>(null);
 
   useEffect(() => {
     domainApi.getSkillRanking({ page: 1, pageSize: 100 }).then((r) => setSkillOptions(r.list));
@@ -104,6 +106,33 @@ export function MetricQAPage() {
       if (record?.skillIds?.length) setBoundSkillIds(record.skillIds);
     });
   }, [qaSessionId]);
+
+  useEffect(() => {
+    const loadBoundCollection = async () => {
+      if (boundSkillIds.length === 0) {
+        setBoundCollectionStatus(null);
+        return;
+      }
+      const systems = await domainApi.getKnowledgeSystems();
+      const matched = systems.find((s) => boundSkillIds.includes(s.skillId));
+      if (!matched) {
+        setBoundCollectionStatus(null);
+        return;
+      }
+      try {
+        const statsRes = await fetch(`/api/text2sql/rag/stats/${encodeURIComponent(matched.id)}`);
+        const statsData = (await statsRes.json()) as { success?: boolean; chunk_count?: number };
+        if (statsRes.ok && statsData.success) {
+          setBoundCollectionStatus({ id: matched.id, chunkCount: statsData.chunk_count ?? 0 });
+          return;
+        }
+      } catch {
+        // ignore
+      }
+      setBoundCollectionStatus({ id: matched.id, chunkCount: 0 });
+    };
+    void loadBoundCollection();
+  }, [boundSkillIds]);
 
   useEffect(() => {
     const bindIds = (location.state as { bindSkillIds?: string[] } | null)?.bindSkillIds;
@@ -324,6 +353,7 @@ export function MetricQAPage() {
       setAdvancedIntent(intent);
 
       let skillContext = "";
+      let collectionId = "";
       if (boundSkillIds.length > 0) {
         const entries = await Promise.all(
           boundSkillIds.map((id) => domainApi.getSkillKnowledgeEntryBySkillId(id)),
@@ -332,12 +362,43 @@ export function MetricQAPage() {
           .filter((e: SkillKnowledgeEntry | null): e is SkillKnowledgeEntry => e != null)
           .map((e) => `【${e.title}】\n${e.summary}\n触发条件：${e.triggerCondition}\n步骤：${e.steps}`);
         if (parts.length > 0) skillContext = parts.join("\n\n");
+
+        const systems = await domainApi.getKnowledgeSystems();
+        const matched = systems.find((s) => boundSkillIds.includes(s.skillId));
+        if (matched) {
+          collectionId = matched.id;
+          if (!autoIngestedCollectionsRef.current.has(collectionId)) {
+            try {
+              const statsRes = await fetch(`/api/text2sql/rag/stats/${encodeURIComponent(collectionId)}`);
+              const statsData = (await statsRes.json()) as { success?: boolean; chunk_count?: number };
+              const chunkCount = statsRes.ok && statsData.success ? (statsData.chunk_count ?? 0) : 0;
+              if (chunkCount === 0) {
+                await fetch("/api/text2sql/rag/ingest-folder", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    collection_id: collectionId,
+                    folder_path: "/Users/anzp/environment/AIData/s1.5 - 副本 (2)",
+                  }),
+                });
+              }
+              autoIngestedCollectionsRef.current.add(collectionId);
+            } catch {
+              // Ignore auto-ingest failures to avoid blocking SQL generation.
+            }
+          }
+        }
       }
 
       const sqlRes = await fetch("/api/text2sql/generate-sql", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ intent, dialect: "hive", skill_context: skillContext }),
+        body: JSON.stringify({
+          intent,
+          dialect: "hive",
+          skill_context: skillContext,
+          collection_id: collectionId,
+        }),
       });
       const sqlRaw = await sqlRes.text();
       let sqlData: {
@@ -350,6 +411,8 @@ export function MetricQAPage() {
         matched_skill_rule?: boolean;
         matched_rule_names?: string[];
         fallback_reason?: string | null;
+        used_rag_context?: boolean;
+        rag_chunks_used?: Text2SQLResult["rag_chunks_used"];
         error?: string;
         detail?: string;
       };
@@ -369,6 +432,8 @@ export function MetricQAPage() {
           matched_skill_rule: sqlData.matched_skill_rule ?? false,
           matched_rule_names: sqlData.matched_rule_names ?? [],
           fallback_reason: sqlData.fallback_reason ?? null,
+          used_rag_context: sqlData.used_rag_context ?? false,
+          rag_chunks_used: sqlData.rag_chunks_used ?? [],
         });
       } else {
         messageApi.error(sqlData.error ?? sqlData.detail ?? "SQL 生成失败");
@@ -699,6 +764,11 @@ export function MetricQAPage() {
                     下载
                   </Button>
                 </Space>
+              )}
+              {boundCollectionStatus && (
+                <Typography.Text type="secondary" style={{ marginLeft: 8 }}>
+                  关联知识库：{boundCollectionStatus.id}（RAG 切片 {boundCollectionStatus.chunkCount} 条）
+                </Typography.Text>
               )}
             </div>
             <Input.TextArea

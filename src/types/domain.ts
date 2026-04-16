@@ -196,6 +196,28 @@ export interface KnowledgeCollection {
   updatedAt?: string;
 }
 
+export interface RAGChunk {
+  id: string;
+  text: string;
+  score?: number;
+  metadata: {
+    source_file: string;
+    chunk_type: "markdown_section" | "excel_row" | "text_paragraph";
+    section_title?: string;
+    sheet_name?: string;
+    row_number?: number;
+    chunk_index?: number;
+  };
+}
+
+export interface RAGCollectionStats {
+  collection_id: string;
+  chunk_count: number;
+  file_count: number;
+  file_sources: string[];
+  last_updated?: string;
+}
+
 export interface KnowledgeSystemDetail {
   systemId: string;
   /** 关联 Skill ID（与 KnowledgeSystemCard.skillId 一致） */

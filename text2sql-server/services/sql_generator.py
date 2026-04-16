@@ -14,6 +14,7 @@ from typing import Any
 
 from services.llm_client import chat_completion_json
 from services.meta_extractor import load_meta_file
+from services.rag_service import rag_service
 from services.skill_rule_engine import match_rules, parse_skill_context
 
 
@@ -108,13 +109,35 @@ async def generate_sql(
     *,
     dialect: str = "hive",
     skill_context: str = "",
+    collection_id: str = "",
 ) -> dict[str, Any]:
     """Generate SQL from structured intent using the 5-step pipeline.
 
     Returns dict with keys: field_mapping, sql, execution_notes,
     chain_of_thought, warnings.
     """
-    meta_context = _build_meta_context()
+    rag_chunks_used: list[dict[str, Any]] = []
+    rag_context = ""
+    if collection_id.strip():
+        try:
+            rag_chunks_used = await rag_service.query(
+                collection_id.strip(),
+                _intent_to_query(intent),
+                top_k=5,
+            )
+            if rag_chunks_used:
+                rag_context = _format_rag_chunks(rag_chunks_used)
+        except Exception:
+            rag_chunks_used = []
+            rag_context = ""
+
+    meta_context = rag_context or ""
+    if len(meta_context) < 1000:
+        base_meta = _build_meta_context()
+        if meta_context and base_meta:
+            meta_context = f"{meta_context}\n\n---\n\n{base_meta}"
+        elif not meta_context:
+            meta_context = base_meta
     if not meta_context:
         return {
             "field_mapping": [],
@@ -125,6 +148,8 @@ async def generate_sql(
             "matched_skill_rule": False,
             "matched_rule_names": [],
             "fallback_reason": "meta context missing",
+            "rag_chunks_used": [],
+            "used_rag_context": False,
         }
 
     system = _SYSTEM_PROMPT.format(meta_context=meta_context, dialect=dialect)
@@ -164,6 +189,8 @@ async def generate_sql(
         refined["matched_skill_rule"] = True
         refined["matched_rule_names"] = rule_match_result["matched_rule_names"]
         refined["fallback_reason"] = None
+        refined["rag_chunks_used"] = rag_chunks_used
+        refined["used_rag_context"] = bool(rag_chunks_used)
         return refined
 
     try:
@@ -178,6 +205,8 @@ async def generate_sql(
             "matched_skill_rule": False,
             "matched_rule_names": [],
             "fallback_reason": str(rule_match_result.get("fallback_reason") or "LLM error"),
+            "rag_chunks_used": rag_chunks_used,
+            "used_rag_context": bool(rag_chunks_used),
         }
 
     for key in ("field_mapping", "sql", "execution_notes", "chain_of_thought", "warnings"):
@@ -185,6 +214,8 @@ async def generate_sql(
     result.setdefault("matched_skill_rule", False)
     result.setdefault("matched_rule_names", [])
     result.setdefault("fallback_reason", rule_match_result.get("fallback_reason"))
+    result.setdefault("rag_chunks_used", rag_chunks_used)
+    result.setdefault("used_rag_context", bool(rag_chunks_used))
 
     return result
 
@@ -192,6 +223,32 @@ async def generate_sql(
 def _safe_json(obj: Any) -> str:
     import json
     return json.dumps(obj, ensure_ascii=False, indent=2)
+
+
+def _intent_to_query(intent: dict[str, Any]) -> str:
+    metrics = intent.get("target_metrics") or []
+    dimensions = intent.get("dimensions") or []
+    period = intent.get("period") or intent.get("period_param") or ""
+    include = ((intent.get("filters") or {}).get("include") or [])
+    exclude = ((intent.get("filters") or {}).get("exclude") or [])
+    pieces = [str(x) for x in [*metrics, *dimensions, period, *include, *exclude] if x]
+    return " ".join(pieces) if pieces else _safe_json(intent)
+
+
+def _format_rag_chunks(chunks: list[dict[str, Any]]) -> str:
+    rows: list[str] = []
+    for i, item in enumerate(chunks, start=1):
+        meta = item.get("metadata") or {}
+        source = meta.get("source_file") or "unknown"
+        section = meta.get("section_title") or meta.get("sheet_name") or ""
+        score = item.get("score")
+        title = f"Chunk{i} | source={source}"
+        if section:
+            title += f" | section={section}"
+        if score is not None:
+            title += f" | score={score}"
+        rows.append(f"### {title}\n\n{item.get('text', '')}")
+    return "\n\n".join(rows)
 
 
 def _split_skill_constraints(skill_context: str) -> tuple[str, str]:

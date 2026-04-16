@@ -18,6 +18,7 @@ class GenerateSQLRequest(BaseModel):
     intent: dict[str, Any]
     dialect: str = "hive"
     skill_context: str = ""
+    collection_id: str = ""
 
 
 class ValidateSQLRequest(BaseModel):
@@ -39,6 +40,7 @@ async def api_generate_sql(body: GenerateSQLRequest):
         body.intent,
         dialect=body.dialect,
         skill_context=body.skill_context,
+        collection_id=body.collection_id,
     )
     return {"success": True, **result}
 

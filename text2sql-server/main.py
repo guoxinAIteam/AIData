@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from routers import meta, requirement, sql_generate
+from routers import meta, rag, requirement, sql_generate
 
 _CFG_PATH = Path(__file__).parent / "config.yaml"
 
@@ -56,6 +56,7 @@ app.add_middleware(
 app.include_router(meta.router, prefix="/api/text2sql", tags=["meta"])
 app.include_router(requirement.router, prefix="/api/text2sql", tags=["requirement"])
 app.include_router(sql_generate.router, prefix="/api/text2sql", tags=["sql"])
+app.include_router(rag.router, prefix="/api/text2sql", tags=["rag"])
 
 
 @app.exception_handler(Exception)

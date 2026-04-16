@@ -5,16 +5,18 @@ import { KnowledgeDataSourceTab } from "../../../components/domain/knowledge/Kno
 import { KnowledgeDatasetTab } from "../../../components/domain/knowledge/KnowledgeDatasetTab";
 import { KnowledgeDimensionTab } from "../../../components/domain/knowledge/KnowledgeDimensionTab";
 import { KnowledgeMetricTab } from "../../../components/domain/knowledge/KnowledgeMetricTab";
+import { KnowledgeRAGTab } from "../../../components/domain/knowledge/KnowledgeRAGTab";
 import { authApi, domainApi } from "../../../services/mockApi";
 import type { KnowledgeSystemDetail, ImportedTable } from "../../../types/domain";
 
-type ManageTabKey = "datasource" | "datasets" | "metrics" | "dimensions";
+type ManageTabKey = "datasource" | "datasets" | "metrics" | "dimensions" | "rag";
 
 const tabItems: Array<{ key: ManageTabKey; label: string }> = [
   { key: "datasource", label: "源数据管理" },
   { key: "datasets", label: "知识集合" },
   { key: "metrics", label: "指标" },
   { key: "dimensions", label: "维度" },
+  { key: "rag", label: "素材切片与检索" },
 ];
 
 export function KnowledgeSystemManagePage() {
@@ -109,6 +111,9 @@ export function KnowledgeSystemManagePage() {
           isCreator={isCreator}
         />
       );
+    }
+    if (activeKey === "rag") {
+      return <KnowledgeRAGTab systemId={id} />;
     }
     return null;
   }, [activeKey, detail, id, loadDetail]);
