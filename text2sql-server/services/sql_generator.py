@@ -12,8 +12,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from services.llm_client import chat_completion, chat_completion_json
+from services.llm_client import chat_completion_json
 from services.meta_extractor import load_meta_file
+from services.skill_rule_engine import match_rules, parse_skill_context
 
 
 # ---------------------------------------------------------------------------
@@ -22,7 +23,11 @@ from services.meta_extractor import load_meta_file
 
 def _build_meta_context() -> str:
     """Load all available meta files and concatenate for LLM context."""
+    # Keep context compact for 8k models to avoid token-limit failures.
+    max_file_chars = 2200
+    max_total_chars = 5200
     parts: list[str] = []
+    used = 0
     for name, label in [
         ("schema.md", "数据字典"),
         ("metrics.md", "指标口径库"),
@@ -31,7 +36,22 @@ def _build_meta_context() -> str:
     ]:
         content = load_meta_file(name)
         if content:
-            parts.append(f"### {label}\n\n{content}")
+            trimmed = content
+            if len(trimmed) > max_file_chars:
+                trimmed = (
+                    trimmed[: max_file_chars - 120]
+                    + "\n\n[...已截断，完整内容请在源文件查看...]\n"
+                )
+            chunk = f"### {label}\n\n{trimmed}"
+            if used + len(chunk) > max_total_chars:
+                remain = max_total_chars - used
+                if remain <= 0:
+                    break
+                chunk = chunk[:remain] + "\n\n[...上下文总长度已截断...]\n"
+            parts.append(chunk)
+            used += len(chunk)
+            if used >= max_total_chars:
+                break
     return "\n\n---\n\n".join(parts) if parts else ""
 
 
@@ -75,7 +95,8 @@ _SYSTEM_PROMPT = """\
 ## 核心规则
 - 所有结论 100% 来源于上述元数据文件，禁止编造
 - 缺失口径时标注 "[待补充: 指标XXX在口径库中未找到定义]"
-- 每个核心结论标注来源（如"依据：数据字典-DWA_V_M_CUS_CB_USER_INFO"）"""
+- 每个核心结论标注来源（如"依据：数据字典-DWA_V_M_CUS_CB_USER_INFO"）
+- 约束优先级：Skill 硬约束 > Skill 软约束 > metrics.md > sample_sql.md"""
 
 
 # ---------------------------------------------------------------------------
@@ -101,14 +122,49 @@ async def generate_sql(
             "execution_notes": "",
             "chain_of_thought": ["元数据知识库为空，请先上传素材并执行元数据提取。"],
             "warnings": ["meta/ 目录下无任何知识文件，无法生成 SQL。"],
+            "matched_skill_rule": False,
+            "matched_rule_names": [],
+            "fallback_reason": "meta context missing",
         }
 
     system = _SYSTEM_PROMPT.format(meta_context=meta_context, dialect=dialect)
+    hard_constraints, soft_constraints = _split_skill_constraints(skill_context)
 
     user_parts = [f"## 结构化取数意图\n\n```json\n{_safe_json(intent)}\n```"]
-    if skill_context:
-        user_parts.append(f"\n## Skill 知识上下文\n\n{skill_context}")
+    if hard_constraints:
+        user_parts.append(f"\n## Skill硬约束(必须遵守)\n\n{hard_constraints}")
+    if soft_constraints:
+        user_parts.append(f"\n## Skill软约束(优先参考)\n\n{soft_constraints}")
     user_msg = "\n".join(user_parts)
+
+    parsed_rules = parse_skill_context(skill_context)
+    rule_match_result = match_rules(intent, parsed_rules)
+
+    # Rule-first branch: if matched, draft SQL first and then ask LLM to refine/complete
+    if rule_match_result["matched"]:
+        refined = await _refine_rule_sql(
+            system=system,
+            intent=intent,
+            rule_sql_draft=rule_match_result["rule_sql_draft"],
+            hard_constraints=hard_constraints,
+            soft_constraints=soft_constraints,
+        )
+        refined.setdefault("field_mapping", [])
+        refined.setdefault("sql", rule_match_result["rule_sql_draft"])
+        refined.setdefault("execution_notes", "")
+        refined.setdefault(
+            "chain_of_thought",
+            [
+                "解析自然语言需求",
+                "命中 Skill 规则，优先采用规则草案",
+                "基于元数据补全/优化 SQL",
+            ],
+        )
+        refined.setdefault("warnings", [])
+        refined["matched_skill_rule"] = True
+        refined["matched_rule_names"] = rule_match_result["matched_rule_names"]
+        refined["fallback_reason"] = None
+        return refined
 
     try:
         result = await chat_completion_json(system, user_msg)
@@ -119,10 +175,16 @@ async def generate_sql(
             "execution_notes": "",
             "chain_of_thought": [f"LLM 调用失败: {exc}"],
             "warnings": [str(exc)],
+            "matched_skill_rule": False,
+            "matched_rule_names": [],
+            "fallback_reason": str(rule_match_result.get("fallback_reason") or "LLM error"),
         }
 
     for key in ("field_mapping", "sql", "execution_notes", "chain_of_thought", "warnings"):
         result.setdefault(key, [] if key in ("field_mapping", "chain_of_thought", "warnings") else "")
+    result.setdefault("matched_skill_rule", False)
+    result.setdefault("matched_rule_names", [])
+    result.setdefault("fallback_reason", rule_match_result.get("fallback_reason"))
 
     return result
 
@@ -130,3 +192,57 @@ async def generate_sql(
 def _safe_json(obj: Any) -> str:
     import json
     return json.dumps(obj, ensure_ascii=False, indent=2)
+
+
+def _split_skill_constraints(skill_context: str) -> tuple[str, str]:
+    """Split skill text into hard and soft constraints."""
+    if not skill_context.strip():
+        return "", ""
+    hard_lines: list[str] = []
+    soft_lines: list[str] = []
+    for line in skill_context.splitlines():
+        t = line.strip()
+        if not t:
+            continue
+        if any(k in t for k in ("必须", "禁止", "不可", "强制", "约束", "排除", "去除")):
+            hard_lines.append(t)
+        else:
+            soft_lines.append(t)
+    return "\n".join(hard_lines), "\n".join(soft_lines)
+
+
+async def _refine_rule_sql(
+    *,
+    system: str,
+    intent: dict[str, Any],
+    rule_sql_draft: str,
+    hard_constraints: str,
+    soft_constraints: str,
+) -> dict[str, Any]:
+    """Refine rule-first SQL with LLM; fallback to draft on failure."""
+    user_parts = [
+        "## 规则优先SQL草案\n```sql\n" + rule_sql_draft + "\n```",
+        "## 结构化取数意图\n```json\n" + _safe_json(intent) + "\n```",
+    ]
+    if hard_constraints:
+        user_parts.append("## Skill硬约束(必须遵守)\n" + hard_constraints)
+    if soft_constraints:
+        user_parts.append("## Skill软约束(优先参考)\n" + soft_constraints)
+    user_parts.append(
+        "请在不违反硬约束的前提下优化 SQL，并输出既定 JSON 字段。若无法优化，保留原草案并在 warnings 说明。"
+    )
+    try:
+        return await chat_completion_json(system, "\n\n".join(user_parts))
+    except Exception as exc:
+        return {
+            "field_mapping": [],
+            "sql": rule_sql_draft,
+            "execution_notes": "已命中 Skill 规则并返回规则草案；LLM 优化失败。",
+            "chain_of_thought": [
+                "解析需求",
+                "命中 Skill 规则",
+                "生成规则 SQL 草案",
+                f"LLM 优化失败: {exc}",
+            ],
+            "warnings": [f"LLM 优化失败，已回退规则草案: {exc}"],
+        }

@@ -80,12 +80,25 @@ def extract_meta(input_dir: str, output_dir: str | None):
     sql_text = ""
     requirement_text = ""
     code_table_text = ""
+    data_dictionary_xlsx_paths: list[Path] = []
+    metrics_kb_xlsx_paths: list[Path] = []
 
     for f in sorted(input_path.iterdir()):
         if f.is_dir():
             continue
-        content = f.read_text(encoding="utf-8", errors="replace")
         lower = f.name.lower()
+        if f.suffix.lower() == ".xlsx":
+            if "数据字典" in f.name:
+                data_dictionary_xlsx_paths.append(f)
+                console.print(f"  📊 数据字典(xlsx): {f.name}")
+            elif "指标口径" in f.name:
+                metrics_kb_xlsx_paths.append(f)
+                console.print(f"  📊 指标口径(xlsx): {f.name}")
+            else:
+                console.print(f"  📎 其他Excel(跳过): {f.name}")
+            continue
+
+        content = f.read_text(encoding="utf-8", errors="replace")
 
         if "ddl" in lower or lower.endswith(".ddl"):
             ddl_text += content + "\n"
@@ -105,6 +118,8 @@ def extract_meta(input_dir: str, output_dir: str | None):
         sample_sql_text=sql_text or None,
         requirement_text=requirement_text or None,
         code_table_text=code_table_text or None,
+        data_dictionary_xlsx_paths=data_dictionary_xlsx_paths or None,
+        metrics_kb_xlsx_paths=metrics_kb_xlsx_paths or None,
     ))
 
     if saved:

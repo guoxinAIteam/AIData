@@ -77,7 +77,7 @@ _SYSTEM_PROMPT = """\
 输出严格 JSON（不要 markdown 代码块），包含：
 - target_metrics: string[]，需要统计的指标名称列表
 - dimensions: string[]，统计维度（如"省份"、"渠道"、"账期"）
-- filters: { include: string[], exclude: string[] }，包含和排除条件
+- filters: {{ include: string[], exclude: string[] }}，包含和排除条件
 - period: string，统计周期描述（如"2026年3月"）
 - period_param: string，账期参数（如"202603"）
 - source_table: string，主要数据来源表（如已知）

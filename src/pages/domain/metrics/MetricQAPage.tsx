@@ -1,4 +1,4 @@
-import { FileExcelOutlined, FilterOutlined, ReloadOutlined, SendOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { DownloadOutlined, EyeOutlined, FileExcelOutlined, FilterOutlined, ReloadOutlined, SendOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { Button, Card, Col, Collapse, Drawer, Input, Modal, Row, Select, Space, Switch, Table, Tabs, Tag, Typography, Upload, message } from "antd";
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
@@ -15,11 +15,21 @@ import type {
   SkillKnowledgeEntry,
 } from "../../../types/domain";
 
-const recommendedQuestions = [
+const standardRecommendedQuestions = [
   "分省新发展用户数",
   "各省公众渠道新发展用户数（去除副卡）",
   "本月全国营收是多少？",
   "华东区域活跃用户趋势如何？",
+];
+
+// 高级问数（Text2SQL）优先给出与当前移网经营指标素材一致的示例问句
+const advancedRecommendedQuestions = [
+  "202512 分省移网新发展用户数",
+  "202512 分省移网在网用户数",
+  "202512 分省移网新发展在网用户数",
+  "202512 分省移网三无用户数",
+  "202512 分省移网活跃用户数",
+  "202512 各省公众渠道移网新发展用户数（去除副卡）",
 ];
 
 type RegionFilter = BusinessMetricSnapshot["region"] | "全部";
@@ -43,6 +53,9 @@ export function MetricQAPage() {
   const [docModalOpen, setDocModalOpen] = useState(false);
   const [docContent, setDocContent] = useState<string>("");
   const [docLoading, setDocLoading] = useState(false);
+  const [skillPreviewOpen, setSkillPreviewOpen] = useState(false);
+  const [skillPreviewContent, setSkillPreviewContent] = useState<string>("");
+  const [skillPreviewLoading, setSkillPreviewLoading] = useState(false);
   const [queryMeta, setQueryMeta] = useState<{ matchedRule?: boolean; sqlTemplateId?: string; durationMs?: number }>({});
   const [currentHistoryId, setCurrentHistoryId] = useState<string | undefined>(undefined);
   const [activeTab, setActiveTab] = useState<"ask" | "history">("ask");
@@ -60,6 +73,7 @@ export function MetricQAPage() {
   const [historyDetailExecuteLoading, setHistoryDetailExecuteLoading] = useState(false);
 
   const [advancedMode, setAdvancedMode] = useState(false);
+  const recommendedQuestions = advancedMode ? advancedRecommendedQuestions : standardRecommendedQuestions;
   const [advancedIntent, setAdvancedIntent] = useState<StructuredIntent | null>(null);
   const [advancedSqlResult, setAdvancedSqlResult] = useState<Text2SQLResult | null>(null);
   const [advancedLoading, setAdvancedLoading] = useState(false);
@@ -294,9 +308,16 @@ export function MetricQAPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: finalQuestion, use_llm: true }),
       });
-      const intentData = await intentRes.json();
-      if (!intentData.success) {
-        messageApi.error("需求解析失败");
+      const intentRaw = await intentRes.text();
+      let intentData: { success?: boolean; intent?: StructuredIntent; error?: string; detail?: string };
+      try {
+        intentData = JSON.parse(intentRaw) as typeof intentData;
+      } catch {
+        messageApi.error("需求解析服务返回了非 JSON 响应，请检查后端日志");
+        return;
+      }
+      if (!intentRes.ok || !intentData.success || !intentData.intent) {
+        messageApi.error(intentData.error ?? intentData.detail ?? "需求解析失败");
         return;
       }
       const intent: StructuredIntent = intentData.intent;
@@ -318,17 +339,39 @@ export function MetricQAPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ intent, dialect: "hive", skill_context: skillContext }),
       });
-      const sqlData = await sqlRes.json();
-      if (sqlData.success) {
+      const sqlRaw = await sqlRes.text();
+      let sqlData: {
+        success?: boolean;
+        field_mapping?: Text2SQLResult["field_mapping"];
+        sql?: string;
+        execution_notes?: string;
+        chain_of_thought?: string[];
+        warnings?: string[];
+        matched_skill_rule?: boolean;
+        matched_rule_names?: string[];
+        fallback_reason?: string | null;
+        error?: string;
+        detail?: string;
+      };
+      try {
+        sqlData = JSON.parse(sqlRaw) as typeof sqlData;
+      } catch {
+        messageApi.error("SQL 生成服务返回了非 JSON 响应，请检查后端日志");
+        return;
+      }
+      if (sqlRes.ok && sqlData.success) {
         setAdvancedSqlResult({
           field_mapping: sqlData.field_mapping ?? [],
           sql: sqlData.sql ?? "",
           execution_notes: sqlData.execution_notes ?? "",
           chain_of_thought: sqlData.chain_of_thought ?? [],
           warnings: sqlData.warnings ?? [],
+          matched_skill_rule: sqlData.matched_skill_rule ?? false,
+          matched_rule_names: sqlData.matched_rule_names ?? [],
+          fallback_reason: sqlData.fallback_reason ?? null,
         });
       } else {
-        messageApi.error("SQL 生成失败");
+        messageApi.error(sqlData.error ?? sqlData.detail ?? "SQL 生成失败");
       }
     } catch (e) {
       messageApi.error(e instanceof Error ? e.message : "高级模式请求异常");
@@ -484,6 +527,89 @@ export function MetricQAPage() {
     }
   };
 
+  const buildSkillPreviewContent = (entries: SkillKnowledgeEntry[]) => {
+    if (entries.length === 0) return "当前绑定的 Skill 暂无可预览内容。";
+    return entries
+      .map((e) => {
+        const attachments = e.attachments?.length
+          ? e.attachments.map((a) => `- [${a.type}] ${a.name}`).join("\n")
+          : "- 无";
+        return [
+          `# ${e.title}`,
+          "",
+          `- Skill ID: ${e.skillId}`,
+          `- 来源: ${e.source}`,
+          `- 更新时间: ${e.updatedAt}`,
+          "",
+          "## 摘要",
+          e.summary || "无",
+          "",
+          "## 触发条件",
+          e.triggerCondition || "无",
+          "",
+          "## 输入规范",
+          e.inputSpec || "无",
+          "",
+          "## 执行步骤",
+          e.steps || "无",
+          "",
+          "## 校验标准",
+          e.checkCriteria || "无",
+          "",
+          "## 中止条件",
+          e.abortCondition || "无",
+          "",
+          "## 恢复方法",
+          e.recoveryMethod || "无",
+          "",
+          "## 附件",
+          attachments,
+          "",
+          "---",
+          "",
+        ].join("\n");
+      })
+      .join("\n");
+  };
+
+  const handlePreviewSkills = async () => {
+    if (boundSkillIds.length === 0) {
+      messageApi.warning("请先绑定至少一个 Skill");
+      return;
+    }
+    setSkillPreviewOpen(true);
+    setSkillPreviewLoading(true);
+    try {
+      const entries = await Promise.all(
+        boundSkillIds.map((id) => domainApi.getSkillKnowledgeEntryBySkillId(id)),
+      );
+      const valid = entries.filter((e: SkillKnowledgeEntry | null): e is SkillKnowledgeEntry => e != null);
+      setSkillPreviewContent(buildSkillPreviewContent(valid));
+    } finally {
+      setSkillPreviewLoading(false);
+    }
+  };
+
+  const handleDownloadSkills = async () => {
+    if (boundSkillIds.length === 0) {
+      messageApi.warning("请先绑定至少一个 Skill");
+      return;
+    }
+    const entries = await Promise.all(
+      boundSkillIds.map((id) => domainApi.getSkillKnowledgeEntryBySkillId(id)),
+    );
+    const valid = entries.filter((e: SkillKnowledgeEntry | null): e is SkillKnowledgeEntry => e != null);
+    const content = buildSkillPreviewContent(valid);
+    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `bound-skills-${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    messageApi.success("已下载绑定 Skill 内容");
+  };
+
   return (
     <>
       {contextHolder}
@@ -566,6 +692,12 @@ export function MetricQAPage() {
                 <Space style={{ marginLeft: 8 }}>
                   <Button size="small" onClick={unbindAll}>解绑全部</Button>
                   <Button size="small" type="primary" onClick={saveBind}>保存绑定</Button>
+                  <Button size="small" icon={<EyeOutlined />} onClick={() => void handlePreviewSkills()}>
+                    预览
+                  </Button>
+                  <Button size="small" icon={<DownloadOutlined />} onClick={() => void handleDownloadSkills()}>
+                    下载
+                  </Button>
                 </Space>
               )}
             </div>
@@ -729,6 +861,21 @@ export function MetricQAPage() {
           <div style={{ padding: 24, textAlign: "center" }}>加载中…</div>
         ) : (
           <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", margin: 0 }}>{docContent}</pre>
+        )}
+      </Modal>
+
+      <Modal
+        title="已绑定 Skill 预览"
+        open={skillPreviewOpen}
+        onCancel={() => setSkillPreviewOpen(false)}
+        footer={<Button onClick={() => setSkillPreviewOpen(false)}>关闭</Button>}
+        width={860}
+        styles={{ body: { maxHeight: "70vh", overflow: "auto" } }}
+      >
+        {skillPreviewLoading ? (
+          <div style={{ padding: 24, textAlign: "center" }}>加载中…</div>
+        ) : (
+          <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", margin: 0 }}>{skillPreviewContent}</pre>
         )}
       </Modal>
 

@@ -16,6 +16,11 @@ from services.llm_client import chat_completion_json
 
 META_DIR = Path(__file__).resolve().parent.parent / "meta"
 
+try:
+    import openpyxl  # type: ignore
+except Exception:  # noqa: BLE001
+    openpyxl = None
+
 
 # ---------------------------------------------------------------------------
 # DDL -> schema.md
@@ -64,8 +69,9 @@ def parse_ddl(ddl_text: str) -> list[dict]:
 def parse_sql_for_joins(sql_text: str) -> list[dict]:
     """Parse sample SQL to extract JOIN relationships and filter patterns."""
     joins: list[dict] = []
+    cleaned_sql = _extract_sql_chunks(sql_text)
     try:
-        stmts = sqlglot.parse(sql_text, read="hive", error_level=sqlglot.ErrorLevel.IGNORE)
+        stmts = sqlglot.parse(cleaned_sql, read="hive", error_level=sqlglot.ErrorLevel.IGNORE)
     except Exception:
         return joins
 
@@ -83,6 +89,175 @@ def parse_sql_for_joins(sql_text: str) -> list[dict]:
                     "on_condition": on_node.sql() if on_node else "",
                 })
     return joins
+
+
+def _extract_sql_chunks(text: str) -> str:
+    """Best-effort extraction of SQL statements from markdown-ish text."""
+    if not text:
+        return ""
+    fenced = re.findall(r"```sql\\s*([\\s\\S]*?)```", text, flags=re.IGNORECASE)
+    if fenced:
+        return "\n\n".join(s.strip() for s in fenced if s.strip())
+    lines: list[str] = []
+    started = False
+    for line in text.splitlines():
+        t = line.strip()
+        if not started and re.search(r"\\bSELECT\\b", t, flags=re.IGNORECASE):
+            started = True
+        if not started:
+            continue
+        if t.startswith("#") or t.startswith("##") or t.startswith("-"):
+            continue
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _normalize_header(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip().replace("\n", "").replace("\r", "")
+
+
+def _read_xlsx_rows(path: Path, *, header_row: int = 1, max_rows: int = 50000) -> list[dict[str, Any]]:
+    """Read an xlsx sheet into list-of-dict rows.
+
+    Notes:
+    - This is a best-effort parser. If column names are unknown, we still keep raw columns.
+    - We intentionally cap rows to avoid oversized meta files.
+    """
+    if openpyxl is None:
+        raise RuntimeError("openpyxl not installed; please `pip install -r requirements.txt`")
+
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    ws = wb.active
+    headers: list[str] = []
+    for row in ws.iter_rows(min_row=header_row, max_row=header_row, values_only=True):
+        headers = [_normalize_header(v) or f"COL_{i+1}" for i, v in enumerate(row)]
+        break
+
+    rows: list[dict[str, Any]] = []
+    for idx, row in enumerate(ws.iter_rows(min_row=header_row + 1, values_only=True), start=1):
+        if idx > max_rows:
+            break
+        if row is None:
+            continue
+        rec: dict[str, Any] = {}
+        empty = True
+        for i, v in enumerate(row):
+            key = headers[i] if i < len(headers) else f"COL_{i+1}"
+            rec[key] = v
+            if v not in (None, ""):
+                empty = False
+        if not empty:
+            rows.append(rec)
+    return rows
+
+
+def parse_data_dictionary_xlsx(path: Path) -> list[dict[str, Any]]:
+    """Parse '数据字典' xlsx to table definitions compatible with _build_schema_md."""
+    rows = _read_xlsx_rows(path)
+    # Common column guesses
+    candidates_table = ("表名", "TABLE_NAME", "table_name", "TABLE", "模型名称")
+    candidates_col = ("字段名", "字段名称", "COLUMN_NAME", "col_name", "字段", "模型字段英文名称")
+    candidates_type = ("类型", "字段类型", "DATA_TYPE", "type", "字段类型")
+    candidates_comment = ("含义", "字段含义", "注释", "COMMENT", "remark", "备注", "模型字段中文名称")
+    candidates_table_comment = ("表描述", "模型描述", "comment", "描述")
+
+    def pick_key(rec: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+        for k in rec.keys():
+            if k in keys:
+                return k
+        # fuzzy contains
+        for k in rec.keys():
+            for kk in keys:
+                if kk and kk.lower() in str(k).lower():
+                    return k
+        return None
+
+    tables: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        k_table = pick_key(r, candidates_table)
+        k_col = pick_key(r, candidates_col)
+        if not k_table or not k_col:
+            continue
+        table_name = str(r.get(k_table) or "").strip()
+        col_name = str(r.get(k_col) or "").strip()
+        if not table_name or not col_name:
+            continue
+        k_type = pick_key(r, candidates_type)
+        k_comment = pick_key(r, candidates_comment)
+
+        t = tables.setdefault(
+            table_name,
+            {"name": table_name, "schema": "", "columns": [], "comment": ""},
+        )
+        k_tbl_c = pick_key(r, candidates_table_comment)
+        if k_tbl_c and not t.get("comment") and r.get(k_tbl_c):
+            t["comment"] = str(r.get(k_tbl_c) or "").strip()
+        t["columns"].append(
+            {
+                "name": col_name,
+                "type": str(r.get(k_type) or "").strip() if k_type else "",
+                "comment": str(r.get(k_comment) or "").strip() if k_comment else "",
+            }
+        )
+    return list(tables.values())
+
+
+def parse_metrics_kb_xlsx(path: Path) -> list[dict[str, Any]]:
+    """Parse '指标口径知识库' xlsx to metric dicts compatible with _build_metrics_md."""
+    rows = _read_xlsx_rows(path)
+    # Common column guesses
+    candidates_name = ("指标名称", "指标名", "name", "NAME", "字段名称", "字段名")
+    candidates_en = ("英文名", "english_name", "EN_NAME")
+    candidates_def = ("业务含义", "含义", "definition", "DEF")
+    candidates_calc = ("计算逻辑", "口径", "calculation", "SQL", "公式", "技术口径")
+    candidates_table = ("来源表", "source_table", "TABLE", "表名")
+    candidates_gran = ("统计粒度", "粒度", "granularity")
+    candidates_cons = ("限制条件", "约束", "constraints")
+
+    def pick_key(keys: tuple[str, ...]) -> str | None:
+        if not rows:
+            return None
+        # use header from first row
+        header_keys = list(rows[0].keys())
+        for hk in header_keys:
+            if hk in keys:
+                return hk
+        for hk in header_keys:
+            for kk in keys:
+                if kk and kk.lower() in str(hk).lower():
+                    return hk
+        return None
+
+    k_name = pick_key(candidates_name)
+    if not k_name:
+        return []
+    k_en = pick_key(candidates_en)
+    k_def = pick_key(candidates_def)
+    k_calc = pick_key(candidates_calc)
+    k_table = pick_key(candidates_table)
+    k_gran = pick_key(candidates_gran)
+    k_cons = pick_key(candidates_cons)
+
+    metrics: list[dict[str, Any]] = []
+    for r in rows:
+        name = str(r.get(k_name) or "").strip()
+        if not name:
+            continue
+        cons_val = str(r.get(k_cons) or "").strip() if k_cons else ""
+        metrics.append(
+            {
+                "name": name,
+                "english_name": str(r.get(k_en) or "").strip() if k_en else "",
+                "definition": str(r.get(k_def) or "").strip() if k_def else "",
+                "calculation": str(r.get(k_calc) or "").strip() if k_calc else "",
+                "source_table": str(r.get(k_table) or "").strip() if k_table else "",
+                "granularity": str(r.get(k_gran) or "").strip() if k_gran else "",
+                "constraints": [c.strip() for c in re.split(r"[，,;；\n]+", cons_val) if c.strip()] if cons_val else [],
+            }
+        )
+    return metrics
 
 
 def _build_schema_md(tables: list[dict], joins: list[dict]) -> str:
@@ -198,6 +373,8 @@ async def extract_and_save(
     sample_sql_text: str | None = None,
     requirement_text: str | None = None,
     code_table_text: str | None = None,
+    data_dictionary_xlsx_paths: list[Path] | None = None,
+    metrics_kb_xlsx_paths: list[Path] | None = None,
 ) -> dict[str, str]:
     """Run full extraction pipeline and persist to meta/ directory."""
     META_DIR.mkdir(parents=True, exist_ok=True)
@@ -208,6 +385,12 @@ async def extract_and_save(
 
     if ddl_text:
         tables = parse_ddl(ddl_text)
+    if data_dictionary_xlsx_paths:
+        for p in data_dictionary_xlsx_paths:
+            try:
+                tables.extend(parse_data_dictionary_xlsx(p))
+            except Exception:
+                continue
     if sample_sql_text:
         joins = parse_sql_for_joins(sample_sql_text)
 
@@ -221,7 +404,17 @@ async def extract_and_save(
         (META_DIR / "sample_sql.md").write_text(sql_md, encoding="utf-8")
         saved["sample_sql.md"] = sql_md
 
-    if requirement_text:
+    if metrics_kb_xlsx_paths:
+        all_metrics: list[dict[str, Any]] = []
+        for p in metrics_kb_xlsx_paths:
+            try:
+                all_metrics.extend(parse_metrics_kb_xlsx(p))
+            except Exception:
+                continue
+        metrics_md = _build_metrics_md(all_metrics)
+        (META_DIR / "metrics.md").write_text(metrics_md, encoding="utf-8")
+        saved["metrics.md"] = metrics_md
+    elif requirement_text:
         metrics_md = await extract_metrics_from_text(requirement_text)
         (META_DIR / "metrics.md").write_text(metrics_md, encoding="utf-8")
         saved["metrics.md"] = metrics_md

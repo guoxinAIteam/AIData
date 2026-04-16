@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from routers import meta, requirement, sql_generate
 
@@ -55,6 +56,19 @@ app.add_middleware(
 app.include_router(meta.router, prefix="/api/text2sql", tags=["meta"])
 app.include_router(requirement.router, prefix="/api/text2sql", tags=["requirement"])
 app.include_router(sql_generate.router, prefix="/api/text2sql", tags=["sql"])
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(_request, exc: Exception):
+    """Always return JSON for unhandled errors to prevent frontend JSON parse failures."""
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "error": "Internal Server Error",
+            "detail": str(exc),
+        },
+    )
 
 
 @app.get("/api/text2sql/health")

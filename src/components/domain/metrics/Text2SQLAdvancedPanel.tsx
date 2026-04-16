@@ -14,6 +14,9 @@ export interface Text2SQLResult {
   execution_notes: string;
   chain_of_thought: string[];
   warnings: string[];
+  matched_skill_rule?: boolean;
+  matched_rule_names?: string[];
+  fallback_reason?: string | null;
 }
 
 export interface StructuredIntent {
@@ -140,6 +143,26 @@ export function Text2SQLAdvancedPanel({ intent, sqlResult, loading }: Text2SQLAd
               { title: "关联字段/计算逻辑", dataIndex: "calculation_logic" },
             ]}
           />
+        </Card>
+      )}
+
+      {sqlResult && (
+        <Card title="Skill 命中状态" size="small">
+          <Space wrap>
+            <Tag color={sqlResult.matched_skill_rule ? "success" : "default"}>
+              {sqlResult.matched_skill_rule ? "已命中 Skill 规则" : "未命中 Skill 规则"}
+            </Tag>
+            {(sqlResult.matched_rule_names ?? []).map((name) => (
+              <Tag color="blue" key={name}>
+                {name}
+              </Tag>
+            ))}
+          </Space>
+          {!sqlResult.matched_skill_rule && sqlResult.fallback_reason ? (
+            <Typography.Text type="secondary" style={{ display: "block", marginTop: 8 }}>
+              回退原因：{sqlResult.fallback_reason}
+            </Typography.Text>
+          ) : null}
         </Card>
       )}
 
