@@ -50,11 +50,9 @@ import type { PendingGlossaryTerm } from "../types/domain";
 import { getSkillSourceType } from "../types/domain";
 import { extractTermsFromSkillContent } from "../utils/termExtractFromSkill";
 
-const AUTH_USERS_KEY = "zy_auth_users";
-const AUTH_SESSION_KEY = "zy_auth_session";
-const DOMAIN_DATA_KEY = "zy_domain_data";
 const SKILLS_PROXY_SYNC_ENDPOINT = "/api/skills/sync";
 const SKILLS_PROXY_DETAIL_ENDPOINT = "/api/skills/detail";
+const _STORE_BASE = "/api/text2sql/store";
 
 const delay = async (ms = 280) => {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -75,7 +73,36 @@ const nowText = () => {
 
 const createId = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 
-const canUseStorage = () => typeof window !== "undefined" && Boolean(window.localStorage);
+/* ---------- in-memory caches (replace localStorage) ---------- */
+let _domainDataCache: DomainData | null = null;
+let _usersCache: AuthUser[] | null = null;
+let _sessionCache: AuthSession | null = null;
+let _storeInitialized = false;
+
+const _flushTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+const _FLUSH_DELAY = 300;
+
+function _debouncedFlush(key: string, payload: unknown): void {
+  if (_flushTimers[key]) clearTimeout(_flushTimers[key]);
+  _flushTimers[key] = setTimeout(() => {
+    fetch(`${_STORE_BASE}/${key}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).catch((err) => console.warn(`[store] flush ${key} failed:`, err));
+  }, _FLUSH_DELAY);
+}
+
+async function _fetchStore<T>(key: string): Promise<T | null> {
+  try {
+    const res = await fetch(`${_STORE_BASE}/${key}`);
+    if (!res.ok) return null;
+    const json = (await res.json()) as { data: T | null };
+    return json.data;
+  } catch {
+    return null;
+  }
+}
 
 interface SkillProxyListItem {
   id: string;
@@ -460,92 +487,82 @@ const normalizeDomainData = (raw: Partial<DomainData>): DomainData => {
 };
 
 const loadUsers = (): AuthUser[] => {
-  if (!canUseStorage()) {
-    return deepClone(seededUsers).map((item) => normalizeUser(item));
-  }
-  const raw = window.localStorage.getItem(AUTH_USERS_KEY);
-  if (!raw) {
-    window.localStorage.setItem(AUTH_USERS_KEY, JSON.stringify(seededUsers));
-    return deepClone(seededUsers).map((item) => normalizeUser(item));
-  }
-  const parsed = JSON.parse(raw) as Partial<AuthUser>[];
-  const normalized = parsed.map((item) => normalizeUser(item));
-  window.localStorage.setItem(AUTH_USERS_KEY, JSON.stringify(normalized));
-  return normalized;
+  if (_usersCache) return _usersCache;
+  const fallback = deepClone(seededUsers).map((item) => normalizeUser(item));
+  _usersCache = fallback;
+  return fallback;
 };
 
 const saveUsers = (users: AuthUser[]) => {
-  if (!canUseStorage()) {
-    return;
-  }
-  window.localStorage.setItem(AUTH_USERS_KEY, JSON.stringify(users));
+  _usersCache = users;
+  _debouncedFlush("auth_users", users);
 };
 
-const SEED_VERSION_KEY = "zy_seed_version";
-const CURRENT_SEED_VERSION = "5";
-
 const loadDomainData = (): DomainData => {
-  if (!canUseStorage()) {
-    return normalizeDomainData(deepClone(seededDomainData));
-  }
-  const storedVersion = window.localStorage.getItem(SEED_VERSION_KEY) ?? "";
-  const raw = window.localStorage.getItem(DOMAIN_DATA_KEY);
-  if (!raw || storedVersion !== CURRENT_SEED_VERSION) {
-    if (raw && storedVersion !== CURRENT_SEED_VERSION) {
-      const old = JSON.parse(raw) as Partial<DomainData>;
-      const merged = normalizeDomainData(old);
-      window.localStorage.setItem(DOMAIN_DATA_KEY, JSON.stringify(merged));
-      window.localStorage.setItem(SEED_VERSION_KEY, CURRENT_SEED_VERSION);
-      return merged;
-    }
-    window.localStorage.setItem(DOMAIN_DATA_KEY, JSON.stringify(seededDomainData));
-    window.localStorage.setItem(SEED_VERSION_KEY, CURRENT_SEED_VERSION);
-    return normalizeDomainData(deepClone(seededDomainData));
-  }
-  const normalized = normalizeDomainData(JSON.parse(raw) as Partial<DomainData>);
-  window.localStorage.setItem(DOMAIN_DATA_KEY, JSON.stringify(normalized));
-  return normalized;
+  if (_domainDataCache) return _domainDataCache;
+  const fallback = normalizeDomainData(deepClone(seededDomainData));
+  _domainDataCache = fallback;
+  return fallback;
 };
 
 const saveDomainData = (data: DomainData) => {
-  if (!canUseStorage()) {
-    return;
-  }
-  window.localStorage.setItem(DOMAIN_DATA_KEY, JSON.stringify(data));
+  _domainDataCache = data;
+  _debouncedFlush("domain_data", data);
 };
 
 const loadSession = (): AuthSession | null => {
-  if (!canUseStorage()) {
-    return null;
-  }
-  const raw = window.localStorage.getItem(AUTH_SESSION_KEY);
-  if (!raw) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(raw) as Partial<AuthSession>;
-    const fromStorage = Array.isArray(parsed.permissionCodes) ? parsed.permissionCodes : [];
-    return {
-      userId: parsed.userId ?? "",
-      username: parsed.username ?? "",
-      displayName: parsed.displayName ?? parsed.username ?? "用户",
-      permissionCodes: [...new Set([...defaultPermissionCodes, ...fromStorage])],
-    };
-  } catch {
-    return null;
-  }
+  return _sessionCache;
 };
 
 const saveSession = (session: AuthSession | null) => {
-  if (!canUseStorage()) {
-    return;
+  _sessionCache = session;
+  if (session) {
+    _debouncedFlush("auth_session", session);
+  } else {
+    fetch(`${_STORE_BASE}/auth_session`, { method: "DELETE" }).catch(() => {});
   }
-  if (!session) {
-    window.localStorage.removeItem(AUTH_SESSION_KEY);
-    return;
-  }
-  window.localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
 };
+
+/**
+ * Pull all persisted data from backend JSON files into memory caches.
+ * Should be called once before the app renders.
+ */
+export async function initStoreFromBackend(): Promise<void> {
+  if (_storeInitialized) return;
+
+  const [domainRaw, usersRaw, sessionRaw] = await Promise.all([
+    _fetchStore<Partial<DomainData>>("domain_data"),
+    _fetchStore<Partial<AuthUser>[]>("auth_users"),
+    _fetchStore<Partial<AuthSession>>("auth_session"),
+  ]);
+
+  if (domainRaw) {
+    _domainDataCache = normalizeDomainData(domainRaw);
+    _debouncedFlush("domain_data", _domainDataCache);
+  } else {
+    _domainDataCache = normalizeDomainData(deepClone(seededDomainData));
+    _debouncedFlush("domain_data", _domainDataCache);
+  }
+
+  if (usersRaw && usersRaw.length > 0) {
+    _usersCache = usersRaw.map((u) => normalizeUser(u));
+  } else {
+    _usersCache = deepClone(seededUsers).map((u) => normalizeUser(u));
+    _debouncedFlush("auth_users", _usersCache);
+  }
+
+  if (sessionRaw && sessionRaw.userId) {
+    const fromStorage = Array.isArray(sessionRaw.permissionCodes) ? sessionRaw.permissionCodes : [];
+    _sessionCache = {
+      userId: sessionRaw.userId ?? "",
+      username: sessionRaw.username ?? "",
+      displayName: sessionRaw.displayName ?? sessionRaw.username ?? "用户",
+      permissionCodes: [...new Set([...defaultPermissionCodes, ...fromStorage])],
+    };
+  }
+
+  _storeInitialized = true;
+}
 
 export interface LoginPayload {
   username: string;

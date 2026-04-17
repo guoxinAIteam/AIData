@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from routers import meta, rag, requirement, sql_generate
+from routers import meta, rag, requirement, sql_generate, store
 from services import rag_service
 
 logger = logging.getLogger(__name__)
@@ -74,6 +74,7 @@ def _auto_ingest_materials() -> None:
 async def lifespan(_app: FastAPI):
     _load_env()
     _app.state.config = load_config()
+    (Path(__file__).resolve().parent / "data").mkdir(parents=True, exist_ok=True)
     _auto_ingest_materials()
     yield
 
@@ -95,6 +96,7 @@ app.include_router(meta.router, prefix="/api/text2sql", tags=["meta"])
 app.include_router(requirement.router, prefix="/api/text2sql", tags=["requirement"])
 app.include_router(sql_generate.router, prefix="/api/text2sql", tags=["sql"])
 app.include_router(rag.router, prefix="/api/text2sql", tags=["rag"])
+app.include_router(store.router, prefix="/api/text2sql", tags=["store"])
 
 
 @app.exception_handler(Exception)

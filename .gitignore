@@ -30,3 +30,4 @@ __pycache__
 text2sql-server/meta/*.md
 !text2sql-server/meta/.gitkeep
 text2sql-server/chroma_data/
+text2sql-server/data/
