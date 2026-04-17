@@ -29,7 +29,9 @@ export function KnowledgeSystemListPage() {
   const [skillEntries, setSkillEntries] = useState<SkillKnowledgeEntry[]>([]);
   const [skillEntriesLoading, setSkillEntriesLoading] = useState(false);
   const [entryDetail, setEntryDetail] = useState<SkillKnowledgeEntry | null>(null);
-  const [skillOptions, setSkillOptions] = useState<Array<{ id: string; name: string }>>([]);
+  const [skillOptions, setSkillOptions] = useState<
+    Array<{ id: string; name: string; boundSystemName?: string }>
+  >([]);
   const [skillOptionsLoading, setSkillOptionsLoading] = useState(false);
   const [myCreatorSkillIds, setMyCreatorSkillIds] = useState<Set<string>>(new Set());
   const [systemsPage, setSystemsPage] = useState(1);
@@ -80,22 +82,22 @@ export function KnowledgeSystemListPage() {
   }, [activeTab]);
 
   const loadSkillOptionsForCreate = useCallback(async () => {
-    const session = authApi.getSessionSync();
-    if (!session?.userId) {
-      setSkillOptions([]);
-      return;
-    }
     setSkillOptionsLoading(true);
     try {
       const { list } = await domainApi.getSkillRanking({
         page: 1,
         pageSize: 500,
-        createdByUserId: session.userId,
-        sourceType: "own",
       });
-      const withKs = new Set(systems.map((s) => s.skillId).filter(Boolean));
-      const withoutKs = list.filter((s) => !withKs.has(s.id)).map((s) => ({ id: s.id, name: s.name }));
-      setSkillOptions(withoutKs);
+      const boundMap = new Map<string, string>();
+      systems.forEach((s) => {
+        if (s.skillId) boundMap.set(s.skillId, s.name);
+      });
+      const options = list.map((s) => ({
+        id: s.id,
+        name: s.name,
+        boundSystemName: boundMap.get(s.id),
+      }));
+      setSkillOptions(options);
     } finally {
       setSkillOptionsLoading(false);
     }
@@ -345,13 +347,34 @@ export function KnowledgeSystemListPage() {
         }}
       >
         <Form form={form} layout="vertical">
-          <Form.Item label="选择 Skill（仅显示您创建且尚未绑定知识库的）" name="skillId" rules={[{ required: true, message: "请选择 Skill" }]}>
+          <Form.Item
+            label="选择 Skill（展示全部 Skill，已绑定知识库的将以标签提示并不可选）"
+            name="skillId"
+            rules={[{ required: true, message: "请选择 Skill" }]}
+          >
             <Select
               placeholder="请选择 Skill"
               loading={skillOptionsLoading}
-              options={skillOptions.map((s) => ({ label: s.name, value: s.id }))}
               showSearch
-              optionFilterProp="label"
+              filterOption={(input, opt) => {
+                const raw = (opt as { skillName?: string })?.skillName ?? "";
+                return raw.toLowerCase().includes(input.toLowerCase());
+              }}
+              options={skillOptions.map((s) => ({
+                value: s.id,
+                skillName: s.name,
+                disabled: Boolean(s.boundSystemName),
+                label: s.boundSystemName ? (
+                  <Space size={6}>
+                    <span>{s.name}</span>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      已绑定：{s.boundSystemName}
+                    </Typography.Text>
+                  </Space>
+                ) : (
+                  s.name
+                ),
+              }))}
             />
           </Form.Item>
           <Form.Item label="知识库名称（选填，默认取 Skill 名称）" name="name">
