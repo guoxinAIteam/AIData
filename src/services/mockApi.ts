@@ -481,13 +481,25 @@ const saveUsers = (users: AuthUser[]) => {
   window.localStorage.setItem(AUTH_USERS_KEY, JSON.stringify(users));
 };
 
+const SEED_VERSION_KEY = "zy_seed_version";
+const CURRENT_SEED_VERSION = "5";
+
 const loadDomainData = (): DomainData => {
   if (!canUseStorage()) {
     return normalizeDomainData(deepClone(seededDomainData));
   }
+  const storedVersion = window.localStorage.getItem(SEED_VERSION_KEY) ?? "";
   const raw = window.localStorage.getItem(DOMAIN_DATA_KEY);
-  if (!raw) {
+  if (!raw || storedVersion !== CURRENT_SEED_VERSION) {
+    if (raw && storedVersion !== CURRENT_SEED_VERSION) {
+      const old = JSON.parse(raw) as Partial<DomainData>;
+      const merged = normalizeDomainData(old);
+      window.localStorage.setItem(DOMAIN_DATA_KEY, JSON.stringify(merged));
+      window.localStorage.setItem(SEED_VERSION_KEY, CURRENT_SEED_VERSION);
+      return merged;
+    }
     window.localStorage.setItem(DOMAIN_DATA_KEY, JSON.stringify(seededDomainData));
+    window.localStorage.setItem(SEED_VERSION_KEY, CURRENT_SEED_VERSION);
     return normalizeDomainData(deepClone(seededDomainData));
   }
   const normalized = normalizeDomainData(JSON.parse(raw) as Partial<DomainData>);
